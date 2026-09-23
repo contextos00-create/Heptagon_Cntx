@@ -120,6 +120,8 @@ export default function App() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isGoogleImportOpen, setIsGoogleImportOpen] = useState(false);
   const [driveConfigured, setDriveConfigured] = useState(false);
+  const [keepEnvConfigured, setKeepEnvConfigured] = useState(false);
+  const [keepSessionEmail, setKeepSessionEmail] = useState<string | null>(null);
   const [isGraphSearchOpen, setIsGraphSearchOpen] = useState(false);
   const [isDataGridMatrixOpen, setIsDataGridMatrixOpen] = useState(false);
   const [activeFilterTag, setActiveFilterTag] = useState<string | undefined>();
@@ -200,12 +202,14 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Probe whether Google Drive OAuth credentials are configured server-side
+  // Probe whether Google Drive OAuth / Keep gkeepapi env credentials are configured
   useEffect(() => {
     fetch('/api/google/status')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.driveConfigured) setDriveConfigured(true);
+        if (data?.keepEnvConfigured) setKeepEnvConfigured(true);
+        if (data?.keepSession?.email) setKeepSessionEmail(data.keepSession.email);
         if (typeof window !== 'undefined' && window.location.search.includes('google_connected=1')) {
           setIsGoogleImportOpen(true);
           setIsChatOpen(true);
@@ -1049,6 +1053,8 @@ export default function App() {
         onClose={() => setIsGoogleImportOpen(false)}
         onCommit={handleGoogleImportCommit}
         driveConfigured={driveConfigured}
+        keepEnvConfigured={keepEnvConfigured}
+        keepSessionEmail={keepSessionEmail}
       />
 
       {/* Graph Native Search Modal */}

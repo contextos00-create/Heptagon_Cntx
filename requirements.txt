@@ -1,0 +1,3 @@
+# Unofficial Google Keep client used by scripts/gkeep_bridge.py
+# Keep has no public consumer API — this is a workaround.
+gkeepapi>=0.17.0,<1

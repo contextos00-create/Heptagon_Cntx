@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
 import { GoogleGenAI } from '@google/genai';
 
 dotenv.config();
@@ -16,6 +17,11 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const GOOGLE_REDIRECT_URI =
   process.env.GOOGLE_REDIRECT_URI || `${APP_URL}/api/google/auth/callback`;
+const GKEEP_BRIDGE_PATH = path.resolve(__dirname, 'scripts/gkeep_bridge.py');
+const GKEEP_PYTHON = process.env.GKEEP_PYTHON || 'python3';
+const GKEEP_EMAIL_ENV = process.env.GKEEP_EMAIL || '';
+const GKEEP_MASTER_TOKEN_ENV = process.env.GKEEP_MASTER_TOKEN || '';
+const GKEEP_PASSWORD_ENV = process.env.GKEEP_PASSWORD || '';
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -39,6 +45,14 @@ const googleTokenStore: {
   email?: string;
 } = {};
 
+/** In-memory unofficial Keep session (gkeepapi master token) — never written to disk */
+const keepSessionStore: {
+  email?: string;
+  masterToken?: string;
+  lastSyncAt?: number;
+  noteCount?: number;
+} = {};
+
 const GOOGLE_SCOPES = [
   'openid',
   'email',
@@ -46,6 +60,70 @@ const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/documents.readonly',
 ].join(' ');
+
+function runGkeepBridge(payload: Record<string, unknown>): Promise<{
+  ok: boolean;
+  error?: string;
+  hint?: string;
+  notes?: any[];
+  count?: number;
+  email?: string;
+  master_token?: string;
+  warning?: string;
+  via?: string;
+}> {
+  return new Promise((resolve) => {
+    const child = spawn(GKEEP_PYTHON, [GKEEP_BRIDGE_PATH], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env },
+    });
+
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve({
+        ok: false,
+        error: 'gkeepapi bridge timed out after 60s',
+        hint: 'Check network access to Google and that master_token is valid.',
+      });
+    }, 60_000);
+
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      resolve({
+        ok: false,
+        error: `Failed to start gkeep bridge: ${err.message}`,
+        hint: 'Install Python deps with: pip install -r requirements.txt',
+      });
+    });
+    child.on('close', () => {
+      clearTimeout(timer);
+      try {
+        const parsed = JSON.parse(stdout.trim() || '{}');
+        if (!parsed.ok && stderr && !parsed.hint) {
+          parsed.hint = stderr.slice(0, 400);
+        }
+        resolve(parsed);
+      } catch {
+        resolve({
+          ok: false,
+          error: 'gkeep bridge returned invalid JSON',
+          hint: (stderr || stdout).slice(0, 500) || undefined,
+        });
+      }
+    });
+
+    child.stdin.write(JSON.stringify(payload));
+    child.stdin.end();
+  });
+}
 
 interface CardContext {
   id: string;
@@ -452,8 +530,112 @@ app.get('/api/google/status', (_req, res) => {
     connected: Boolean(googleTokenStore.accessToken),
     email: googleTokenStore.email || null,
     keepApiAvailable: false,
-    keepImportMethods: ['takeout-zip', 'takeout-json', 'takeout-html', 'paste'],
+    keepUnofficialBridge: true,
+    keepBridgeVia: 'gkeepapi',
+    keepEnvConfigured: Boolean(
+      GKEEP_EMAIL_ENV && (GKEEP_MASTER_TOKEN_ENV || GKEEP_PASSWORD_ENV)
+    ),
+    keepSession: {
+      connected: Boolean(keepSessionStore.masterToken || keepSessionStore.email),
+      email: keepSessionStore.email || null,
+      lastSyncAt: keepSessionStore.lastSyncAt || null,
+      noteCount: keepSessionStore.noteCount || null,
+    },
+    keepImportMethods: [
+      'gkeepapi-live',
+      'takeout-zip',
+      'takeout-json',
+      'takeout-html',
+      'paste',
+    ],
   });
+});
+
+/**
+ * Live Keep sync via unofficial gkeepapi (Python bridge).
+ * Body: { email?, master_token?, password?, include_archived?, max_notes?, use_env? }
+ */
+app.post('/api/google/keep/sync', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const useEnv = Boolean(body.use_env || body.useEnv);
+    const email =
+      (typeof body.email === 'string' && body.email.trim()) ||
+      keepSessionStore.email ||
+      (useEnv ? GKEEP_EMAIL_ENV : '') ||
+      GKEEP_EMAIL_ENV;
+    const masterToken =
+      (typeof body.master_token === 'string' && body.master_token.trim()) ||
+      (typeof body.masterToken === 'string' && body.masterToken.trim()) ||
+      keepSessionStore.masterToken ||
+      (useEnv ? GKEEP_MASTER_TOKEN_ENV : '') ||
+      GKEEP_MASTER_TOKEN_ENV;
+    const password =
+      (typeof body.password === 'string' && body.password.trim()) ||
+      (useEnv ? GKEEP_PASSWORD_ENV : '') ||
+      (!masterToken ? GKEEP_PASSWORD_ENV : '');
+
+    if (!email) {
+      return res.status(400).json({
+        error: 'email is required (or set GKEEP_EMAIL)',
+        hint: 'Prefer master_token auth. Password login is deprecated in gkeepapi.',
+      });
+    }
+    if (!masterToken && !password) {
+      return res.status(400).json({
+        error: 'master_token or password required',
+        hint: 'Obtain a Google oauth master token for gkeepapi.authenticate, or set GKEEP_MASTER_TOKEN.',
+      });
+    }
+
+    const result = await runGkeepBridge({
+      email,
+      master_token: masterToken || undefined,
+      password: password || undefined,
+      include_archived: Boolean(body.include_archived ?? body.includeArchived),
+      include_trashed: Boolean(body.include_trashed ?? body.includeTrashed),
+      max_notes: body.max_notes ?? body.maxNotes ?? 200,
+    });
+
+    if (!result.ok) {
+      return res.status(401).json({
+        error: result.error || 'Keep sync failed',
+        hint: result.hint,
+      });
+    }
+
+    keepSessionStore.email = result.email || email;
+    if (result.master_token) {
+      keepSessionStore.masterToken = result.master_token;
+    } else if (masterToken) {
+      keepSessionStore.masterToken = masterToken;
+    }
+    keepSessionStore.lastSyncAt = Date.now();
+    keepSessionStore.noteCount = result.count || (result.notes || []).length;
+
+    return res.json({
+      notes: result.notes || [],
+      count: keepSessionStore.noteCount,
+      email: keepSessionStore.email,
+      via: 'gkeepapi',
+      warning: result.warning,
+      // Never auto-return master_token to browser unless password login just minted one
+      masterTokenHint: result.master_token
+        ? 'A master token was minted from password login — store it as GKEEP_MASTER_TOKEN and stop sending passwords.'
+        : undefined,
+    });
+  } catch (err: any) {
+    console.error('Keep sync error:', err);
+    res.status(500).json({ error: err.message || 'Keep sync failed' });
+  }
+});
+
+app.post('/api/google/keep/logout', (_req, res) => {
+  keepSessionStore.email = undefined;
+  keepSessionStore.masterToken = undefined;
+  keepSessionStore.lastSyncAt = undefined;
+  keepSessionStore.noteCount = undefined;
+  res.json({ ok: true });
 });
 
 app.post('/api/google/organize', async (req, res) => {

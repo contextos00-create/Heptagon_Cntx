@@ -34,6 +34,8 @@ interface GoogleImportModalProps {
   onClose: () => void;
   onCommit: (payload: GoogleImportCommitPayload) => void;
   driveConfigured?: boolean;
+  keepEnvConfigured?: boolean;
+  keepSessionEmail?: string | null;
 }
 
 type Step = 'source' | 'preview' | 'organize';
@@ -43,6 +45,8 @@ export const GoogleImportModal: React.FC<GoogleImportModalProps> = ({
   onClose,
   onCommit,
   driveConfigured = false,
+  keepEnvConfigured = false,
+  keepSessionEmail = null,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [step, setStep] = useState<Step>('source');
@@ -50,12 +54,18 @@ export const GoogleImportModal: React.FC<GoogleImportModalProps> = ({
   const [organization, setOrganization] = useState<GoogleOrganizeResult | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [isOrganizing, setIsOrganizing] = useState(false);
+  const [isKeepSyncing, setIsKeepSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [createNewBoard, setCreateNewBoard] = useState(true);
   const [boardName, setBoardName] = useState('Google Notes Surface');
   const [activeTab, setActiveTab] = useState<string | null>('keep');
   const [pastedText, setPastedText] = useState('');
+  const [keepEmail, setKeepEmail] = useState(keepSessionEmail || '');
+  const [keepMasterToken, setKeepMasterToken] = useState('');
+  const [keepPassword, setKeepPassword] = useState('');
+  const [keepIncludeArchived, setKeepIncludeArchived] = useState(false);
+  const [keepHint, setKeepHint] = useState<string | null>(null);
 
   const reset = () => {
     setStep('source');
@@ -63,8 +73,11 @@ export const GoogleImportModal: React.FC<GoogleImportModalProps> = ({
     setOrganization(null);
     setIsParsing(false);
     setIsOrganizing(false);
+    setIsKeepSyncing(false);
     setError(null);
     setPastedText('');
+    setKeepPassword('');
+    setKeepHint(null);
   };
 
   const handleClose = () => {
@@ -125,6 +138,41 @@ export const GoogleImportModal: React.FC<GoogleImportModalProps> = ({
 
   const handleLoadSample = () => {
     ingestNotes(createSampleGoogleNotes());
+  };
+
+  const handleKeepLiveSync = async (opts?: { useEnv?: boolean }) => {
+    setIsKeepSyncing(true);
+    setError(null);
+    setKeepHint(null);
+    try {
+      const response = await fetch('/api/google/keep/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: keepEmail.trim() || undefined,
+          master_token: keepMasterToken.trim() || undefined,
+          password: keepPassword.trim() || undefined,
+          include_archived: keepIncludeArchived,
+          use_env: Boolean(opts?.useEnv),
+          max_notes: 200,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || 'Keep sync failed');
+        if (data.hint) setKeepHint(data.hint);
+        return;
+      }
+      if (data.warning) setKeepHint(data.warning);
+      if (data.masterTokenHint) setKeepHint(data.masterTokenHint);
+      setKeepPassword('');
+      ingestNotes((data.notes || []) as ImportedGoogleNote[]);
+    } catch (err: any) {
+      setError(err?.message || 'Keep sync failed');
+      setKeepHint('Install bridge deps: pip install -r requirements.txt');
+    } finally {
+      setIsKeepSyncing(false);
+    }
   };
 
   const runOrganize = async () => {
@@ -210,7 +258,9 @@ export const GoogleImportModal: React.FC<GoogleImportModalProps> = ({
           {step === 'source' && (
             <>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                Google Keep has no public consumer API — import a{' '}
+                Google Keep has no public consumer API. Use the unofficial{' '}
+                <code className="text-[10px] bg-black/5 dark:bg-white/5 px-1 rounded">gkeepapi</code>{' '}
+                live sync workaround, drop a{' '}
                 <a
                   href="https://takeout.google.com"
                   target="_blank"
@@ -219,13 +269,13 @@ export const GoogleImportModal: React.FC<GoogleImportModalProps> = ({
                 >
                   Google Takeout <ExternalLink className="w-3 h-3" />
                 </a>{' '}
-                Keep export (JSON / HTML / ZIP). Optionally connect Drive Docs when OAuth is configured.
+                Keep export, or connect Drive Docs when OAuth is configured.
               </p>
 
               <Tabs value={activeTab} onChange={setActiveTab}>
                 <Tabs.List>
                   <Tabs.Tab value="keep" leftSection={<StickyNote className="w-3 h-3" />}>
-                    Keep Takeout
+                    Keep live / Takeout
                   </Tabs.Tab>
                   <Tabs.Tab value="paste" leftSection={<FileUp className="w-3 h-3" />}>
                     Paste notes
@@ -235,7 +285,82 @@ export const GoogleImportModal: React.FC<GoogleImportModalProps> = ({
                   </Tabs.Tab>
                 </Tabs.List>
 
-                <Tabs.Panel value="keep" className="pt-3">
+                <Tabs.Panel value="keep" className="pt-3 space-y-3">
+                  <div className="rounded-lg border border-orange-500/20 bg-orange-500/[0.03] p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Cloud className="w-3.5 h-3.5 text-orange-500" />
+                      <span className="text-xs font-semibold">Live Keep sync (gkeepapi)</span>
+                      <Badge size="xs" variant="light" color="orange">
+                        unofficial
+                      </Badge>
+                    </div>
+                    <p className="text-[10px] text-zinc-500 leading-relaxed">
+                      Prefer a Google oauth <span className="font-mono">master_token</span> with{' '}
+                      <span className="font-mono">Keep.authenticate</span>. Password login is deprecated
+                      and often blocked.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        value={keepEmail}
+                        onChange={(e) => setKeepEmail(e.target.value)}
+                        placeholder="Google email"
+                        autoComplete="username"
+                        className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent outline-none focus:border-orange-400"
+                      />
+                      <input
+                        value={keepMasterToken}
+                        onChange={(e) => setKeepMasterToken(e.target.value)}
+                        placeholder="Master token (preferred)"
+                        type="password"
+                        autoComplete="off"
+                        className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent outline-none focus:border-orange-400"
+                      />
+                    </div>
+                    <input
+                      value={keepPassword}
+                      onChange={(e) => setKeepPassword(e.target.value)}
+                      placeholder="Password (discouraged fallback)"
+                      type="password"
+                      autoComplete="current-password"
+                      className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent outline-none focus:border-orange-400"
+                    />
+                    <label className="flex items-center gap-2 text-[10px] text-zinc-500 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={keepIncludeArchived}
+                        onChange={(e) => setKeepIncludeArchived(e.target.checked)}
+                      />
+                      Include archived notes
+                    </label>
+                    {keepHint && (
+                      <p className="text-[10px] text-amber-600 dark:text-amber-400">{keepHint}</p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        size="xs"
+                        color="orange"
+                        loading={isKeepSyncing}
+                        leftSection={
+                          isKeepSyncing ? undefined : <Sparkles className="w-3.5 h-3.5" />
+                        }
+                        onClick={() => handleKeepLiveSync()}
+                      >
+                        Sync Keep notes
+                      </Button>
+                      {keepEnvConfigured && (
+                        <Button
+                          size="xs"
+                          variant="light"
+                          color="orange"
+                          loading={isKeepSyncing}
+                          onClick={() => handleKeepLiveSync({ useEnv: true })}
+                        >
+                          Sync with server env credentials
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
                   <div
                     onDragOver={(e) => {
                       e.preventDefault();
@@ -248,7 +373,7 @@ export const GoogleImportModal: React.FC<GoogleImportModalProps> = ({
                       handleFiles(e.dataTransfer.files);
                     }}
                     onClick={() => fileInputRef.current?.click()}
-                    className={`py-12 px-4 border border-dashed rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${
+                    className={`py-8 px-4 border border-dashed rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${
                       dragActive
                         ? 'border-orange-500 bg-orange-500/[0.04]'
                         : 'border-zinc-300 dark:border-zinc-700 hover:border-orange-400'
@@ -260,7 +385,7 @@ export const GoogleImportModal: React.FC<GoogleImportModalProps> = ({
                       <FileUp className="w-7 h-7 text-orange-500 mb-2" />
                     )}
                     <p className="text-xs font-medium">
-                      Drop Keep Takeout ZIP / JSON / HTML, or{' '}
+                      Or drop Keep Takeout ZIP / JSON / HTML, or{' '}
                       <span className="text-orange-500 underline">browse</span>
                     </p>
                     <p className="text-[10px] text-zinc-400 mt-1">
@@ -279,7 +404,6 @@ export const GoogleImportModal: React.FC<GoogleImportModalProps> = ({
                     variant="subtle"
                     color="gray"
                     size="xs"
-                    className="mt-3"
                     onClick={handleLoadSample}
                   >
                     Load sample Google notes (demo)
