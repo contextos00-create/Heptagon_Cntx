@@ -25,6 +25,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { CardDetailModal } from './components/CardDetailModal';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { UploadModal } from './components/UploadModal';
+import { GoogleImportModal, GoogleImportCommitPayload } from './components/GoogleImportModal';
 import { LatentToolbar } from './components/LatentToolbar';
 import { ComputationalViewOverlay } from './components/ComputationalViewOverlay';
 import { GraphNativeSearch } from './components/GraphNativeSearch';
@@ -32,6 +33,7 @@ import { WorkspaceDataGridModal } from './components/WorkspaceDataGridModal';
 import { MobileSectionNav } from './components/MobileSectionNav';
 import { processFileToCard } from './utils/fileHelpers';
 import { groupAndPositionUploadedCards } from './utils/cardIntelligence';
+import { placeOrganizedNotesOnCanvas } from './utils/googleNotesOrganizer';
 import { createDataGridCard, generateScaleStressTestNodes } from './utils/scaleGenerator';
 import { saveWhiteboardServerFn } from './lib/server-fns';
 import { 
@@ -116,6 +118,8 @@ export default function App() {
   const [detailCard, setDetailCard] = useState<SurfaceCard | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isGoogleImportOpen, setIsGoogleImportOpen] = useState(false);
+  const [driveConfigured, setDriveConfigured] = useState(false);
   const [isGraphSearchOpen, setIsGraphSearchOpen] = useState(false);
   const [isDataGridMatrixOpen, setIsDataGridMatrixOpen] = useState(false);
   const [activeFilterTag, setActiveFilterTag] = useState<string | undefined>();
@@ -194,6 +198,23 @@ export default function App() {
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Probe whether Google Drive OAuth credentials are configured server-side
+  useEffect(() => {
+    fetch('/api/google/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.driveConfigured) setDriveConfigured(true);
+        if (typeof window !== 'undefined' && window.location.search.includes('google_connected=1')) {
+          setIsGoogleImportOpen(true);
+          setIsChatOpen(true);
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+      })
+      .catch(() => {
+        /* offline / pre-server */
+      });
   }, []);
 
   // Board sections list for spatial zoning
@@ -771,6 +792,59 @@ export default function App() {
     handleAddMultipleCardsAndConnections(newCards, newConnections);
   };
 
+  const handleGoogleImportCommit = useCallback(
+    (payload: GoogleImportCommitPayload) => {
+      const winW = window.innerWidth - (isSidebarOpen ? 260 : 0);
+      const winH = window.innerHeight - 50;
+      const worldX = (winW / 2 - viewState.panX) / viewState.zoom - 180;
+      const worldY = (winH / 2 - viewState.panY) / viewState.zoom - 120;
+
+      const placement = placeOrganizedNotesOnCanvas(
+        payload.notes,
+        payload.organization,
+        worldX,
+        worldY
+      );
+
+      if (payload.createNewBoard) {
+        const newBoardId = 'wb-google-' + Date.now();
+        const newBoard: Whiteboard = {
+          id: newBoardId,
+          name: payload.boardName,
+          description: payload.organization.overview.slice(0, 180),
+          cards: placement.cards,
+          connections: placement.connections,
+          viewState: { panX: 20, panY: 20, zoom: 0.55 },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        setWhiteboards((prev) => [...prev, newBoard]);
+        setCurrentBoardId(newBoardId);
+        setViewState({ panX: 20, panY: 20, zoom: 0.55 });
+        if (placement.overviewCardId) {
+          setSelectedCardId(placement.overviewCardId);
+          setSpotlightCardId(placement.overviewCardId);
+        }
+      } else {
+        handleAddMultipleCardsAndConnections(placement.cards, placement.connections);
+        if (placement.overviewCardId) {
+          setSelectedCardId(placement.overviewCardId);
+          setSpotlightCardId(placement.overviewCardId);
+        }
+      }
+
+      setIsGoogleImportOpen(false);
+      setIsChatOpen(true);
+    },
+    [
+      handleAddMultipleCardsAndConnections,
+      isSidebarOpen,
+      viewState.panX,
+      viewState.panY,
+      viewState.zoom,
+    ]
+  );
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-white dark:bg-[#0c0d10] font-sans antialiased text-zinc-900 dark:text-zinc-100">
       
@@ -838,6 +912,7 @@ export default function App() {
           onPopulateScaleTest={handlePopulateScaleTest}
           totalCardsCount={currentBoard.cards.length}
           onTriggerFileUpload={() => setIsUploadModalOpen(true)}
+          onTriggerGoogleImport={() => setIsGoogleImportOpen(true)}
           onAutoArrange={handleAutoArrange}
           onApplyLayout={handleApplyLayout}
           layoutTightness={layoutTightness}
@@ -967,6 +1042,13 @@ export default function App() {
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
         onFilesSelected={handleFilesUploaded}
+      />
+
+      <GoogleImportModal
+        isOpen={isGoogleImportOpen}
+        onClose={() => setIsGoogleImportOpen(false)}
+        onCommit={handleGoogleImportCommit}
+        driveConfigured={driveConfigured}
       />
 
       {/* Graph Native Search Modal */}

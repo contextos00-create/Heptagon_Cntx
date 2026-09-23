@@ -26,7 +26,8 @@ import {
   Shield,
   Check,
   ChevronDown,
-  Smartphone
+  Smartphone,
+  Cloud
 } from 'lucide-react';
 import { Tooltip, Badge, ActionIcon, Group, Menu } from '@mantine/core';
 import { 
@@ -59,6 +60,7 @@ interface TopToolbarProps {
   onPopulateScaleTest?: (count: number) => void;
   totalCardsCount?: number;
   onTriggerFileUpload: () => void;
+  onTriggerGoogleImport?: () => void;
   onAutoArrange: () => void;
   onApplyLayout?: (algo: GraphLayoutAlgorithm) => void;
   layoutTightness?: LayoutTightness;
@@ -90,6 +92,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onPopulateScaleTest,
   totalCardsCount = 0,
   onTriggerFileUpload,
+  onTriggerGoogleImport,
   onAutoArrange,
   onApplyLayout,
   layoutTightness = 'tight',
@@ -349,6 +352,18 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             <span className="hidden sm:inline">Upload</span>
           </button>
         </Tooltip>
+
+        {onTriggerGoogleImport && (
+          <Tooltip label="Import Google Keep / Docs and organize with AI">
+            <button
+              onClick={onTriggerGoogleImport}
+              className="px-2 py-0.5 rounded hover:text-zinc-900 dark:hover:text-zinc-200 flex items-center gap-1 transition-colors text-orange-600 dark:text-orange-400"
+            >
+              <Cloud className="w-3 h-3" />
+              <span className="hidden sm:inline">Google</span>
+            </button>
+          </Tooltip>
+        )}
 
         {onOpenDataGridMatrix && (
           <Tooltip label="Workspace Data Grid & Entity Matrix">
