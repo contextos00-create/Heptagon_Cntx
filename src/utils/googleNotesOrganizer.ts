@@ -90,21 +90,38 @@ export function organizeNotesLocally(notes: ImportedGoogleNote[]): GoogleOrganiz
   const assigned = new Set<number>();
   const clusters: GoogleThemeCluster[] = [];
 
-  // Prefer label-based clusters first
+  // Prefer labels that appear on multiple notes so themes coalesce
   const byLabel = new Map<string, number[]>();
   notes.forEach((note, idx) => {
-    if (note.labels.length === 0) return;
-    const key = note.labels[0].toLowerCase();
-    if (!byLabel.has(key)) byLabel.set(key, []);
-    byLabel.get(key)!.push(idx);
+    const labels = note.labels.length > 0 ? note.labels : ['general'];
+    for (const label of labels) {
+      const key = label.toLowerCase();
+      if (!byLabel.has(key)) byLabel.set(key, []);
+      byLabel.get(key)!.push(idx);
+    }
+  });
+
+  const rankedLabels = [...byLabel.entries()].sort((a, b) => {
+    // Prefer multi-member labels, then larger groups
+    const multiA = a[1].length > 1 ? 1 : 0;
+    const multiB = b[1].length > 1 ? 1 : 0;
+    if (multiB !== multiA) return multiB - multiA;
+    return b[1].length - a[1].length;
   });
 
   let colorIdx = 0;
-  for (const [label, idxs] of byLabel) {
-    if (idxs.length < 1) continue;
-    const members = idxs.map((i) => notes[i]);
+  for (const [label, idxs] of rankedLabels) {
+    const uniqueIdxs = [...new Set(idxs)].filter((i) => !assigned.has(i));
+    // Skip singleton labels if a multi-label theme already covers most notes
+    if (uniqueIdxs.length === 0) continue;
+    if (uniqueIdxs.length === 1 && idxs.length === 1 && assigned.size < notes.length) {
+      // defer true singletons until after multi-member labels
+      continue;
+    }
+
+    const members = uniqueIdxs.map((i) => notes[i]);
     const keywordFreq = new Map<string, number>();
-    for (const i of idxs) {
+    for (const i of uniqueIdxs) {
       for (const t of tokenSets[i]) {
         keywordFreq.set(t, (keywordFreq.get(t) || 0) + 1);
       }
@@ -122,10 +139,10 @@ export function organizeNotesLocally(notes: ImportedGoogleNote[]): GoogleOrganiz
       color: CLUSTER_COLORS[colorIdx++ % CLUSTER_COLORS.length],
       keywords,
     });
-    idxs.forEach((i) => assigned.add(i));
+    uniqueIdxs.forEach((i) => assigned.add(i));
   }
 
-  // Greedy keyword clustering for remaining notes
+  // Remaining unassigned notes → keyword clustering / singleton labels
   for (let i = 0; i < notes.length; i++) {
     if (assigned.has(i)) continue;
     const group = [i];
