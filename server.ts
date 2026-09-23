@@ -305,19 +305,32 @@ function organizeNotesHeuristic(notes: ImportedNotePayload[]) {
   );
   const byLabel = new Map<string, number[]>();
   notes.forEach((note, idx) => {
-    const label = (note.labels && note.labels[0]) || 'general';
-    const key = label.toLowerCase();
-    if (!byLabel.has(key)) byLabel.set(key, []);
-    byLabel.get(key)!.push(idx);
+    const labels = note.labels && note.labels.length > 0 ? note.labels : ['general'];
+    for (const label of labels) {
+      const key = label.toLowerCase();
+      if (!byLabel.has(key)) byLabel.set(key, []);
+      byLabel.get(key)!.push(idx);
+    }
+  });
+
+  const rankedLabels = [...byLabel.entries()].sort((a, b) => {
+    const multiA = a[1].length > 1 ? 1 : 0;
+    const multiB = b[1].length > 1 ? 1 : 0;
+    if (multiB !== multiA) return multiB - multiA;
+    return b[1].length - a[1].length;
   });
 
   const clusters: any[] = [];
   let colorIdx = 0;
   const assigned = new Set<number>();
 
-  for (const [label, idxs] of byLabel) {
+  for (const [label, idxs] of rankedLabels) {
+    const uniqueIdxs = [...new Set(idxs)].filter((i) => !assigned.has(i));
+    if (uniqueIdxs.length === 0) continue;
+    if (uniqueIdxs.length === 1 && idxs.length === 1) continue;
+
     const keywordFreq = new Map<string, number>();
-    for (const i of idxs) {
+    for (const i of uniqueIdxs) {
       for (const t of tokenSets[i]) keywordFreq.set(t, (keywordFreq.get(t) || 0) + 1);
     }
     const keywords = [...keywordFreq.entries()]
@@ -327,24 +340,51 @@ function organizeNotesHeuristic(notes: ImportedNotePayload[]) {
     clusters.push({
       id: `cluster-${label}-${clusters.length}`,
       name: label.charAt(0).toUpperCase() + label.slice(1),
-      summary: `${idxs.length} notes under “${label}”. Keywords: ${keywords.slice(0, 3).join(', ') || 'n/a'}.`,
-      noteIds: idxs.map((i) => notes[i].id),
+      summary: `${uniqueIdxs.length} notes under “${label}”. Keywords: ${keywords.slice(0, 3).join(', ') || 'n/a'}.`,
+      noteIds: uniqueIdxs.map((i) => notes[i].id),
       color: CLUSTER_COLORS[colorIdx++ % CLUSTER_COLORS.length],
       keywords,
     });
-    idxs.forEach((i) => assigned.add(i));
+    uniqueIdxs.forEach((i) => assigned.add(i));
   }
 
-  // Catch any unassigned (shouldn't happen with general fallback)
   notes.forEach((note, idx) => {
     if (assigned.has(idx)) return;
+    const group = [idx];
+    assigned.add(idx);
+    for (let j = idx + 1; j < notes.length; j++) {
+      if (assigned.has(j)) continue;
+      const a = tokenSets[idx];
+      const b = tokenSets[j];
+      let inter = 0;
+      for (const t of a) if (b.has(t)) inter += 1;
+      const union = a.size + b.size - inter || 1;
+      if (inter / union >= 0.12) {
+        group.push(j);
+        assigned.add(j);
+      }
+    }
+    const keywordFreq = new Map<string, number>();
+    for (const gi of group) {
+      for (const t of tokenSets[gi]) keywordFreq.set(t, (keywordFreq.get(t) || 0) + 1);
+    }
+    const keywords = [...keywordFreq.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([k]) => k);
+    const title = notes[group[0]].title.slice(0, 40);
     clusters.push({
-      id: `cluster-misc-${idx}`,
-      name: note.title.slice(0, 40),
-      summary: 'Standalone imported note.',
-      noteIds: [note.id],
+      id: `cluster-kw-${clusters.length}`,
+      name: keywords[0]
+        ? keywords
+            .slice(0, 2)
+            .map((k) => k.charAt(0).toUpperCase() + k.slice(1))
+            .join(' · ')
+        : title,
+      summary: `Auto-clustered ${group.length} related notes around ${keywords.slice(0, 3).join(', ') || 'shared themes'}.`,
+      noteIds: group.map((i) => notes[i].id),
       color: CLUSTER_COLORS[colorIdx++ % CLUSTER_COLORS.length],
-      keywords: tokenizeLocal(note.title).slice(0, 3),
+      keywords,
     });
   });
 
@@ -360,9 +400,15 @@ function organizeNotesHeuristic(notes: ImportedNotePayload[]) {
       const sharedLabels = (notes[i].labels || []).filter((l) =>
         (notes[j].labels || []).map((x) => x.toLowerCase()).includes(l.toLowerCase())
       );
-      const confidence = Math.min(0.95, score + (sharedLabels.length ? 0.25 : 0));
-      if (confidence < 0.18) continue;
       const sharedTokens = [...a].filter((t) => b.has(t)).slice(0, 4);
+      const minConfidence = notes.length <= 8 ? 0.08 : 0.15;
+      const confidence = Math.min(
+        0.95,
+        score + (sharedLabels.length ? 0.28 : 0) + (sharedTokens.length >= 2 ? 0.1 : 0)
+      );
+      if (confidence < minConfidence && sharedTokens.length === 0 && sharedLabels.length === 0) {
+        continue;
+      }
       connections.push({
         fromNoteId: notes[i].id,
         toNoteId: notes[j].id,
@@ -371,7 +417,7 @@ function organizeNotesHeuristic(notes: ImportedNotePayload[]) {
           sharedLabels.length > 0
             ? `Share label(s): ${sharedLabels.join(', ')}`
             : `Overlap on: ${sharedTokens.join(', ')}`,
-        confidence,
+        confidence: Math.max(confidence, 0.2),
       });
     }
   }
@@ -387,7 +433,7 @@ function organizeNotesHeuristic(notes: ImportedNotePayload[]) {
     overview: `Imported ${notes.length} Google notes into ${clusters.length} thematic clusters. Dominant themes: ${clusters
       .slice(0, 3)
       .map((c) => c.name)
-      .join(', ')}.`,
+      .join(', ')}.${connections.length ? ` Detected ${Math.min(12, connections.length)} cross-note connections worth exploring in chat.` : ''}`,
     clusters,
     connections: connections.slice(0, 12),
     highlights,
