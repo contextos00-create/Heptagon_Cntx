@@ -17,6 +17,11 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
       desc: 'Freely navigate across infinite whiteboard coordinates' 
     },
     { 
+      label: 'Auto focus layout', 
+      keys: [<Kbd key="f">F</Kbd>],
+      desc: 'Automatically zoom out to fit and frame the entire whiteboard layout' 
+    },
+    { 
       label: 'Select tool', 
       keys: [<Kbd key="v">V</Kbd>],
       desc: 'Activate pointer tool for selecting and dragging nodes' 
@@ -50,6 +55,16 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
       label: 'Text drill-down', 
       keys: ['Highlight text'],
       desc: 'Select text inside any card to spawn a connected contextual sub-card' 
+    },
+    { 
+      label: 'Graph Layouts', 
+      keys: ['Layout menu'],
+      desc: 'Force-directed, Stress majorization, ELK layered, or Orthogonal graph with tight spacing' 
+    },
+    { 
+      label: 'Edge Obstacle Avoidance', 
+      keys: ['Edge routing'],
+      desc: 'Automatic orthogonal channel routing around cards with smooth corner fillets' 
     },
     { 
       label: 'Interactive map pins', 

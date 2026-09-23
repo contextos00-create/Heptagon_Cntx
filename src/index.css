@@ -2,31 +2,32 @@
 
 @layer base {
   :root {
-    --canvas-bg: #fbfbfc;
-    --canvas-dot: rgba(0, 0, 0, 0.045);
+    /* Very light grey canvas background with barely perceived graph dots */
+    --canvas-bg: #f3f4f6;
+    --canvas-dot: rgba(0, 0, 0, 0.038);
     --card-bg: #ffffff;
-    --card-border: rgba(0, 0, 0, 0.06);
-    --card-border-hover: rgba(0, 0, 0, 0.16);
+    --card-border: #d4d4d8; /* Minimal theme dark grey border (zinc-300) */
+    --card-border-hover: #71717a;
     --card-header: transparent;
-    --sidebar-bg: #f8f9fa;
+    --sidebar-bg: #f9fafb;
     --text-primary: #18181b;
-    --text-secondary: #71717a;
-    --text-muted: #a1a1aa;
-    --accent-blue: #2563eb;
+    --text-secondary: #52525b;
+    --text-muted: #71717a;
+    --accent-orange: #f97316;
   }
 
   .dark {
-    --canvas-bg: #0d0e11;
-    --canvas-dot: rgba(255, 255, 255, 0.04);
-    --card-bg: #141519;
-    --card-border: rgba(255, 255, 255, 0.06);
-    --card-border-hover: rgba(255, 255, 255, 0.16);
+    --canvas-bg: #111215;
+    --canvas-dot: rgba(255, 255, 255, 0.03);
+    --card-bg: #17181c;
+    --card-border: #27272a; /* Minimal theme dark grey border (zinc-800) */
+    --card-border-hover: #52525b;
     --card-header: transparent;
-    --sidebar-bg: #0f1013;
+    --sidebar-bg: #0d0e11;
     --text-primary: #f4f4f5;
     --text-secondary: #a1a1aa;
     --text-muted: #52525b;
-    --accent-blue: #3b82f6;
+    --accent-orange: #f97316;
   }
 }
 
@@ -46,25 +47,34 @@
   background: rgba(160, 160, 170, 0.4);
 }
 
+/* Restrained selection halos - subtle spatial ambient highlighting instead of thick blue borders */
+.selection-halo {
+  box-shadow: 0 0 0 1px rgba(24, 24, 27, 0.65), 0 4px 18px -2px rgba(0, 0, 0, 0.08);
+}
+.dark .selection-halo {
+  box-shadow: 0 0 0 1px rgba(244, 244, 245, 0.5), 0 6px 24px -2px rgba(0, 0, 0, 0.5);
+}
+
 /* Quiet, intelligent spotlight outline */
 @keyframes quiet-spotlight {
   0% {
-    box-shadow: 0 0 0 1.5px rgba(37, 99, 235, 0.8), 0 8px 24px -6px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 0 0 1.5px rgba(249, 115, 22, 0.6), 0 8px 24px -6px rgba(0, 0, 0, 0.08);
   }
   50% {
-    box-shadow: 0 0 0 2.5px rgba(37, 99, 235, 0.35), 0 12px 32px -8px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 0 0 2.5px rgba(249, 115, 22, 0.25), 0 12px 32px -8px rgba(0, 0, 0, 0.12);
   }
   100% {
-    box-shadow: 0 0 0 1.5px rgba(37, 99, 235, 0.8), 0 8px 24px -6px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 0 0 1.5px rgba(249, 115, 22, 0.6), 0 8px 24px -6px rgba(0, 0, 0, 0.08);
   }
 }
 
 .card-spotlight {
   animation: quiet-spotlight 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  border-color: rgba(37, 99, 235, 0.6) !important;
+  border-color: rgba(249, 115, 22, 0.6) !important;
 }
 
 /* Barely perceptible canvas dot matrix */
 .canvas-grid-dots {
+  background-color: var(--canvas-bg);
   background-image: radial-gradient(circle, var(--canvas-dot) 1px, transparent 1px);
 }

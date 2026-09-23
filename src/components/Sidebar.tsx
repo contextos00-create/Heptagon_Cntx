@@ -69,7 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return (
       <button
         onClick={onToggle}
-        className="fixed top-1/2 -translate-y-1/2 left-0 z-50 flex items-center gap-1.5 px-2 py-2 rounded-r-md bg-orange-500 hover:bg-orange-600 text-white shadow-lg transition-transform hover:scale-105 active:scale-95 group font-mono text-[11px] font-semibold cursor-pointer border-r border-y border-orange-600/40"
+        className="fixed top-28 sm:top-1/2 sm:-translate-y-1/2 left-0 z-50 flex items-center gap-1.5 px-2 py-2 rounded-r-md bg-orange-500 hover:bg-orange-600 text-white shadow-lg transition-transform hover:scale-105 active:scale-95 group font-mono text-[11px] font-semibold cursor-pointer border-r border-y border-orange-600/40"
         title="Open Navigation"
       >
         <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />

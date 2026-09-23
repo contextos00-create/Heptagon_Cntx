@@ -6,9 +6,18 @@ export type CardType =
   | 'video'
   | 'code'
   | 'table'
+  | 'datagrid'
   | 'link'
   | 'map'
-  | 'section';
+  | 'section'
+  | 'quotation'
+  | 'person'
+  | 'decision'
+  | 'evidence'
+  | 'concept'
+  | 'question'
+  | 'timeline'
+  | 'document';
 
 export type CardColor = 
   | 'default'
@@ -34,6 +43,20 @@ export interface FileMetadata {
 export interface TableData {
   headers: string[];
   rows: string[][];
+}
+
+export interface DataGridColumn {
+  id: string;
+  header: string;
+  type?: 'text' | 'number' | 'status' | 'badge' | 'percentage';
+  width?: number;
+  sortable?: boolean;
+}
+
+export interface DataGridData {
+  columns: DataGridColumn[];
+  rows: Record<string, any>[];
+  compact?: boolean;
 }
 
 export interface MapData {
@@ -74,8 +97,38 @@ export interface SurfaceCard {
   fileMetadata?: FileMetadata;
   codeLanguage?: string;
   tableData?: TableData;
+  dataGridData?: DataGridData;
   mapData?: MapData;
   ghostCards?: GhostCardData[]; // Potential expanding cards generated on the fly
+  attribution?: {
+    speaker?: string;
+    role?: string;
+    avatar?: string;
+    source?: string;
+  };
+  evidenceData?: {
+    confidence: number; // 0 - 100
+    sampleSize?: string;
+    verified?: boolean;
+    doiOrCitation?: string;
+  };
+  decisionData?: {
+    outcome: 'approved' | 'proposed' | 'deferred' | 'rejected';
+    rationale?: string;
+    impact?: string;
+  };
+  timelineData?: {
+    date?: string;
+    phase?: string;
+    milestone?: string;
+  };
+  inlineMetrics?: {
+    sparkline?: number[];
+    distribution?: number[];
+    status?: 'active' | 'verified' | 'warning' | 'in_review';
+    metricValue?: string;
+    metricLabel?: string;
+  };
   createdAt: number;
   updatedAt: number;
 }
@@ -87,6 +140,12 @@ export interface Connection {
   label?: string;
   color?: string;
   style?: 'solid' | 'dashed';
+  semanticType?: string;
+  confidence?: number;
+  evidenceSnippet?: string;
+  reasoning?: string;
+  history?: string;
+  strength?: number;
 }
 
 export interface Whiteboard {
@@ -122,3 +181,18 @@ export interface ChatMessage {
 }
 
 export type ThemeMode = 'dark' | 'light';
+
+export type GraphLayoutAlgorithm = 
+  | 'force-directed'
+  | 'stress-majorization'
+  | 'elk-layered'
+  | 'orthogonal'
+  | 'grid-compact'
+  | 'mobile-stack';
+
+export type EdgeRoutingMode = 
+  | 'orthogonal-avoid'
+  | 'curved-smart'
+  | 'direct-straight';
+
+export type LayoutTightness = 'tight' | 'compact' | 'balanced';

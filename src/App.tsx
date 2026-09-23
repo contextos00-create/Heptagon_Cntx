@@ -4,7 +4,10 @@ import {
   SurfaceCard, 
   Connection, 
   CanvasTool, 
-  ThemeMode 
+  ThemeMode,
+  GraphLayoutAlgorithm,
+  EdgeRoutingMode,
+  LayoutTightness
 } from './types/surface';
 import { 
   LatentEngineState, 
@@ -25,8 +28,11 @@ import { UploadModal } from './components/UploadModal';
 import { LatentToolbar } from './components/LatentToolbar';
 import { ComputationalViewOverlay } from './components/ComputationalViewOverlay';
 import { GraphNativeSearch } from './components/GraphNativeSearch';
+import { WorkspaceDataGridModal } from './components/WorkspaceDataGridModal';
+import { MobileSectionNav } from './components/MobileSectionNav';
 import { processFileToCard } from './utils/fileHelpers';
 import { groupAndPositionUploadedCards } from './utils/cardIntelligence';
+import { createDataGridCard, generateScaleStressTestNodes } from './utils/scaleGenerator';
 import { saveWhiteboardServerFn } from './lib/server-fns';
 import { 
   analyzeSpatialRelationships, 
@@ -36,8 +42,9 @@ import {
   getSemanticZoomLevel,
   enrichConnectionSemantics
 } from './utils/latentEngine';
+import { applyGraphLayout } from './utils/graphLayoutEngine';
 
-const STORAGE_KEY = 'heptasurface_data_v3_intelligence';
+const STORAGE_KEY = 'heptasurface_data_v4_scale_datagrid';
 const THEME_KEY = 'heptasurface_theme_v1';
 
 export default function App() {
@@ -110,6 +117,7 @@ export default function App() {
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isGraphSearchOpen, setIsGraphSearchOpen] = useState(false);
+  const [isDataGridMatrixOpen, setIsDataGridMatrixOpen] = useState(false);
   const [activeFilterTag, setActiveFilterTag] = useState<string | undefined>();
 
   // Viewport State (panX, panY, zoom) - opens fully zoomed out to see whole surface scope
@@ -126,6 +134,10 @@ export default function App() {
   const [timelineScrubTimestamp, setTimelineScrubTimestamp] = useState<number>(100);
   const [dynamicGroupingCriterion, setDynamicGroupingCriterion] = useState<LatentEngineState['dynamicGroupingCriterion']>('none');
   const [dismissedAiConnIds, setDismissedAiConnIds] = useState<Set<string>>(new Set());
+
+  // Graph Layout & Obstacle-Avoidance Edge Routing State
+  const [layoutTightness, setLayoutTightness] = useState<LayoutTightness>('tight');
+  const [edgeRoutingMode, setEdgeRoutingMode] = useState<EdgeRoutingMode>('orthogonal-avoid');
 
   // Spatial awareness analysis (containment, clustering, proximity)
   const spatialAnalysis = useMemo(() => {
@@ -169,9 +181,35 @@ export default function App() {
     dynamicGroupingCriterion
   ]);
 
-  // Always compute full-scope zoomed out view to reveal the entire whiteboard surface
-  const fitWholeSurfaceScope = useCallback((board: Whiteboard) => {
+  // Mobile section navigation and layout state
+  const [activeSectionIndex, setActiveSectionIndex] = useState<number>(0);
+  const [isMobileStackActive, setIsMobileStackActive] = useState<boolean>(false);
+  const [isMobileScreen, setIsMobileScreen] = useState<boolean>(() => 
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobileScreen(window.innerWidth < 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Board sections list for spatial zoning
+  const boardSections = useMemo(() => {
+    return (currentBoard?.cards || []).filter((c) => c.type === 'section');
+  }, [currentBoard?.cards]);
+
+  // Mobile-adaptive framing: Guarantees zero white-space voids on phones while maintaining scope
+  const fitWholeSurfaceScope = useCallback((board: Whiteboard, targetSectionIndex?: number) => {
     if (!board || !board.cards.length) return;
+
+    const winW = window.innerWidth - (isSidebarOpen ? 260 : 0) - (isChatOpen ? 340 : 0);
+    const winH = window.innerHeight - 50;
+    const isMobile = window.innerWidth < 768;
+
+    const sections = board.cards.filter((c) => c.type === 'section');
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     board.cards.forEach((c) => {
@@ -181,24 +219,100 @@ export default function App() {
       maxY = Math.max(maxY, c.y + c.height);
     });
 
-    const padding = 70;
+    const totalBoardW = maxX - minX;
+
+    // 1. MOBILE DEVICE BEHAVIOR:
+    // Never zoom down to 0.15-0.20 where cards become microscopic specks lost in empty white space!
+    if (isMobile) {
+      // Case A: Board is already in a vertical mobile stack (narrow width <= 550px)
+      if (totalBoardW <= 550) {
+        const targetScale = Math.min(1.0, Math.max(0.75, (winW - 24) / (totalBoardW + 20)));
+        const targetPanX = Math.round(winW / 2 - (minX + totalBoardW / 2) * targetScale);
+        const targetPanY = 35; // clean top margin
+
+        setViewState({
+          panX: targetPanX,
+          panY: targetPanY,
+          zoom: Number(targetScale.toFixed(3)),
+        });
+        return;
+      }
+
+      // Case B: Board is a wide landscape whiteboard.
+      // Frame the targeted zone/section so cards occupy 85-92% of screen width with zero dead space!
+      const secIdx = typeof targetSectionIndex === 'number' 
+        ? targetSectionIndex 
+        : Math.min(activeSectionIndex, Math.max(0, sections.length - 1));
+      const targetSec = sections[secIdx] || sections[0];
+
+      if (targetSec) {
+        // A section is ~680px wide. Scale ~0.52-0.65 makes it fill the phone width edge-to-edge
+        const secPadding = 20;
+        const targetScale = Math.min(1.0, Math.max(0.55, (winW - 20) / (targetSec.width + secPadding)));
+        const secCenterX = targetSec.x + targetSec.width / 2;
+        const targetPanX = Math.round(winW / 2 - secCenterX * targetScale);
+        const targetPanY = Math.round(35 - targetSec.y * targetScale);
+
+        setViewState({
+          panX: targetPanX,
+          panY: targetPanY,
+          zoom: Number(targetScale.toFixed(3)),
+        });
+        return;
+      }
+
+      // Case C: No sections found - frame the first cards cluster with safe minimum zoom
+      const firstCards = board.cards.slice(0, 4);
+      let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity;
+      firstCards.forEach((c) => {
+        cMinX = Math.min(cMinX, c.x);
+        cMaxX = Math.max(cMaxX, c.x + c.width);
+        cMinY = Math.min(cMinY, c.y);
+      });
+      const targetScale = Math.min(1.0, Math.max(0.68, (winW - 32) / (cMaxX - cMinX + 30)));
+      setViewState({
+        panX: Math.round(winW / 2 - ((cMinX + cMaxX) / 2) * targetScale),
+        panY: Math.round(35 - cMinY * targetScale),
+        zoom: Number(targetScale.toFixed(3)),
+      });
+      return;
+    }
+
+    // 2. DESKTOP BEHAVIOR:
+    const padding = 80;
     const contentW = maxX - minX + padding * 2;
     const contentH = maxY - minY + padding * 2;
 
-    const winW = window.innerWidth - (isSidebarOpen ? 260 : 0) - (isChatOpen ? 340 : 0);
-    const winH = window.innerHeight - 50;
-
-    // Zoom all the way out to guarantee complete scope visibility
-    const scale = Math.min(0.85, Math.max(0.2, Math.min(winW / contentW, winH / contentH)));
+    // Minimum zoom guard of 0.32 prevents outlier cards from turning the canvas into an ocean of whitespace
+    const scale = Math.min(1.0, Math.max(0.32, Math.min(winW / contentW, winH / contentH)));
     const targetPanX = winW / 2 - (minX + (maxX - minX) / 2) * scale;
     const targetPanY = winH / 2 - (minY + (maxY - minY) / 2) * scale;
 
     setViewState({
-      panX: targetPanX,
-      panY: targetPanY,
-      zoom: scale,
+      panX: Math.round(targetPanX),
+      panY: Math.round(targetPanY),
+      zoom: Number(scale.toFixed(3)),
     });
-  }, [isSidebarOpen, isChatOpen]);
+  }, [isSidebarOpen, isChatOpen, activeSectionIndex]);
+
+  // Keyboard shortcut 'F' for Auto Focus whole layout
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+      const isInput =
+        activeTag === 'input' ||
+        activeTag === 'textarea' ||
+        (document.activeElement as HTMLElement)?.isContentEditable;
+      if (isInput) return;
+
+      if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        fitWholeSurfaceScope(currentBoard);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentBoard, fitWholeSurfaceScope]);
 
   // Always open with whole scope zoomed out on initial load and when switching boards
   useEffect(() => {
@@ -443,37 +557,111 @@ export default function App() {
     });
   };
 
-  // Auto arrange all cards into tidy grid
-  const handleAutoArrange = () => {
-    const margin = 24;
-    const cols = Math.ceil(Math.sqrt(currentBoard.cards.length));
-    let curX = 60;
-    let curY = 60;
-    let maxHInRow = 0;
+  // Add new compact sortable Data Grid
+  const handleAddNewDataGrid = () => {
+    const winW = window.innerWidth - (isSidebarOpen ? 260 : 0);
+    const winH = window.innerHeight - 50;
+    const worldX = (winW / 2 - viewState.panX) / viewState.zoom - 220;
+    const worldY = (winH / 2 - viewState.panY) / viewState.zoom - 125;
 
-    const arrangedCards = currentBoard.cards.map((c, i) => {
-      const colIdx = i % cols;
-      if (colIdx === 0 && i !== 0) {
-        curX = 60;
-        curY += maxHInRow + margin;
-        maxHInRow = 0;
+    const existingGrids = currentBoard.cards.filter((c) => c.type === 'datagrid').length;
+    const newCard = createDataGridCard(
+      existingGrids,
+      Math.round(worldX),
+      Math.round(worldY)
+    );
+
+    updateCurrentBoard((board) => ({
+      ...board,
+      cards: [...board.cards, newCard],
+    }));
+    setSelectedCardId(newCard.id);
+  };
+
+  // Populate scaled batch of nodes for scaling stress-testing
+  const handlePopulateScaleTest = (count: number) => {
+    const maxCardY = currentBoard.cards.reduce(
+      (max, c) => Math.max(max, c.y + c.height),
+      400
+    );
+    const { cards: scaledCards, connections: scaledConns } = generateScaleStressTestNodes(
+      count,
+      40,
+      maxCardY + 80
+    );
+
+    updateCurrentBoard((board) => ({
+      ...board,
+      cards: [...board.cards, ...scaledCards],
+      connections: [...board.connections, ...scaledConns],
+    }));
+
+    // Auto-fit to the whole expanded canvas
+    setTimeout(() => {
+      fitWholeSurfaceScope({
+        ...currentBoard,
+        cards: [...currentBoard.cards, ...scaledCards],
+      });
+    }, 150);
+  };
+
+  // Apply graph layout algorithm (Force-Directed, Stress Majorization, ELK Layered, Orthogonal, Compact Grid, Mobile Stack)
+  const handleApplyLayout = useCallback((algo: GraphLayoutAlgorithm) => {
+    if (!currentBoard || currentBoard.cards.length === 0) return;
+
+    if (algo === 'mobile-stack') {
+      setIsMobileStackActive(true);
+    } else {
+      setIsMobileStackActive(false);
+    }
+
+    const arrangedCards = applyGraphLayout(
+      currentBoard.cards,
+      currentBoard.connections,
+      algo,
+      {
+        tightness: layoutTightness,
+        direction: 'horizontal',
+        startX: algo === 'mobile-stack' ? 20 : 60,
+        startY: algo === 'mobile-stack' ? 40 : 60,
       }
-
-      const updated = {
-        ...c,
-        x: curX,
-        y: curY,
-      };
-
-      curX += c.width + margin;
-      maxHInRow = Math.max(maxHInRow, c.height);
-      return updated;
-    });
+    );
 
     updateCurrentBoard((board) => ({
       ...board,
       cards: arrangedCards,
     }));
+
+    // Auto-fit to newly packed layout without white space void
+    setTimeout(() => {
+      fitWholeSurfaceScope({
+        ...currentBoard,
+        cards: arrangedCards,
+      });
+    }, 60);
+  }, [currentBoard, layoutTightness, updateCurrentBoard, fitWholeSurfaceScope]);
+
+  // Mobile Zone Carousel Navigation Handlers
+  const handleSelectSection = useCallback((index: number) => {
+    setActiveSectionIndex(index);
+    fitWholeSurfaceScope(currentBoard, index);
+  }, [currentBoard, fitWholeSurfaceScope]);
+
+  const handleToggleMobileStack = useCallback(() => {
+    if (isMobileStackActive) {
+      handleApplyLayout('force-directed');
+    } else {
+      handleApplyLayout('mobile-stack');
+    }
+  }, [isMobileStackActive, handleApplyLayout]);
+
+  const handleFocusCurrentSection = useCallback(() => {
+    fitWholeSurfaceScope(currentBoard, activeSectionIndex);
+  }, [currentBoard, activeSectionIndex, fitWholeSurfaceScope]);
+
+  // Auto arrange all cards into tidy grid
+  const handleAutoArrange = () => {
+    handleApplyLayout('force-directed');
   };
 
   // Predictive Actions (Context-sensitive operations)
@@ -645,8 +833,17 @@ export default function App() {
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           onAddNewNote={handleAddNewNote}
           onAddNewSection={handleAddNewSection}
+          onAddNewDataGrid={handleAddNewDataGrid}
+          onOpenDataGridMatrix={() => setIsDataGridMatrixOpen(true)}
+          onPopulateScaleTest={handlePopulateScaleTest}
+          totalCardsCount={currentBoard.cards.length}
           onTriggerFileUpload={() => setIsUploadModalOpen(true)}
           onAutoArrange={handleAutoArrange}
+          onApplyLayout={handleApplyLayout}
+          layoutTightness={layoutTightness}
+          onChangeTightness={setLayoutTightness}
+          edgeRoutingMode={edgeRoutingMode}
+          onChangeEdgeRouting={setEdgeRoutingMode}
           onOpenGraphSearch={() => setIsGraphSearchOpen(true)}
         />
 
@@ -675,7 +872,19 @@ export default function App() {
               onUpdateViewState={setViewState}
               isLatentLayerActive={isLatentLayerActive}
               territories={spatialAnalysis.territories}
+              edgeRoutingMode={edgeRoutingMode}
               onPredictiveAction={handlePredictiveAction}
+            />
+
+            {/* Mobile Adaptive Zone Carousel & Stack Controller (Guarantees zero whitespace on phones) */}
+            <MobileSectionNav
+              sections={boardSections}
+              currentSectionIndex={activeSectionIndex}
+              onSelectSection={handleSelectSection}
+              isMobileStackActive={isMobileStackActive}
+              onToggleMobileStack={handleToggleMobileStack}
+              onFocusCurrentSection={handleFocusCurrentSection}
+              totalCards={currentBoard.cards.length}
             />
 
             {/* Canvas Bottom-Left Status & Hints */}
@@ -767,6 +976,16 @@ export default function App() {
         cards={currentBoard.cards}
         connections={currentBoard.connections}
         onFocusCard={handleZoomToCard}
+      />
+
+      {/* Workspace Data Grid Matrix Modal */}
+      <WorkspaceDataGridModal
+        isOpen={isDataGridMatrixOpen}
+        onClose={() => setIsDataGridMatrixOpen(false)}
+        cards={currentBoard.cards}
+        connections={currentBoard.connections}
+        onZoomToCard={handleZoomToCard}
+        onDeleteCard={handleDeleteCard}
       />
     </div>
   );

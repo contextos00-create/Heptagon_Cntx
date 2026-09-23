@@ -195,44 +195,47 @@ export const LatentToolbar: React.FC<LatentToolbarProps> = ({
       )}
 
       {/* Main Latent Mode Controls Bar with Mantine SegmentedControl */}
-      <div className="pointer-events-auto flex items-center gap-2 p-1.5 bg-white/95 dark:bg-[#121316]/95 border border-black/15 dark:border-white/15 rounded-lg shadow-lg backdrop-blur-md text-xs">
+      <div className="pointer-events-auto flex items-center gap-1.5 p-1 bg-white/95 dark:bg-[#121316]/95 border border-black/15 dark:border-white/15 rounded-lg shadow-lg backdrop-blur-md text-xs max-w-[calc(100vw-16px)] overflow-x-auto">
         
         {/* Toggle Latent Computational Layer ("Show me what I'm not seeing") */}
         <Tooltip label="Toggle Latent Computational Layer: Reveal invisible connections, territory themes, and contradictions">
           <button
             onClick={onToggleLatentLayer}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium transition-all text-xs ${
+            className={`flex items-center gap-1 px-2 py-1 rounded-md font-medium transition-all text-xs shrink-0 ${
               isLatentLayerActive
                 ? 'bg-orange-500 text-white shadow-xs font-semibold'
                 : 'text-zinc-700 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/5'
             }`}
           >
-            {isLatentLayerActive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-zinc-500" />}
-            <span>Show me what I'm not seeing</span>
+            {isLatentLayerActive ? <Eye className="w-3.5 h-3.5 shrink-0" /> : <EyeOff className="w-3.5 h-3.5 text-zinc-500 shrink-0" />}
+            <span className="hidden sm:inline">Show me what I'm not seeing</span>
+            <span className="sm:hidden font-mono text-[11px]">Latent</span>
           </button>
         </Tooltip>
 
-        <span className="w-px h-4 bg-zinc-300 dark:bg-zinc-700" />
+        <span className="w-px h-4 bg-zinc-300 dark:bg-zinc-700 shrink-0" />
 
         {/* Mantine SegmentedControl for Multiple Computational Views */}
-        <SegmentedControl
-          size="xs"
-          radius="sm"
-          value={activeViewMode}
-          onChange={(value) => onChangeViewMode(value as ComputationalViewMode)}
-          data={[
-            { label: 'Whiteboard', value: 'whiteboard' },
-            { label: 'Graph', value: 'graph' },
-            { label: 'Timeline', value: 'timeline' },
-            { label: 'Dependencies', value: 'dependency' },
-            { label: 'Evidence', value: 'evidence' },
-          ]}
-        />
+        <div className="shrink-0">
+          <SegmentedControl
+            size="xs"
+            radius="sm"
+            value={activeViewMode}
+            onChange={(value) => onChangeViewMode(value as ComputationalViewMode)}
+            data={[
+              { label: 'Board', value: 'whiteboard' },
+              { label: 'Graph', value: 'graph' },
+              { label: 'Timeline', value: 'timeline' },
+              { label: 'Deps', value: 'dependency' },
+              { label: 'Evidence', value: 'evidence' },
+            ]}
+          />
+        </div>
 
-        <span className="w-px h-4 bg-zinc-300 dark:bg-zinc-700" />
+        <span className="hidden sm:block w-px h-4 bg-zinc-300 dark:bg-zinc-700 shrink-0" />
 
         {/* Dynamic Grouping Trigger */}
-        <div className="flex items-center gap-1 text-[11px]">
+        <div className="hidden sm:flex items-center gap-1 text-[11px] shrink-0">
           <span className="text-zinc-400 font-mono">Group:</span>
           <select
             value={dynamicGroupingCriterion}

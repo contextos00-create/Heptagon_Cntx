@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { SurfaceCard, Connection, CanvasTool, GhostCardData } from '../types/surface';
+import { SurfaceCard, Connection, CanvasTool, GhostCardData, EdgeRoutingMode } from '../types/surface';
 import { CardNode } from './CardNode';
 import { GhostCardNode } from './GhostCardNode';
-import { UploadCloud, Layers } from 'lucide-react';
+import { UploadCloud, Layers, X, Info } from 'lucide-react';
 import { processFileToCard } from '../utils/fileHelpers';
 import { 
   groupAndPositionUploadedCards, 
@@ -19,6 +19,7 @@ import {
   getSemanticZoomLevel, 
   enrichConnectionSemantics 
 } from '../utils/latentEngine';
+import { routeOrthogonalEdgeWithObstacleAvoidance } from '../utils/orthogonalEdgeRouter';
 
 interface SurfaceCanvasProps {
   cards: SurfaceCard[];
@@ -41,6 +42,7 @@ interface SurfaceCanvasProps {
   onUpdateViewState: (state: { panX: number; panY: number; zoom: number }) => void;
   isLatentLayerActive?: boolean;
   territories?: LatentTerritory[];
+  edgeRoutingMode?: EdgeRoutingMode;
   onPredictiveAction?: (action: 'compare' | 'find_relations' | 'trace_evidence' | 'find_contradictions' | 'timeline', card: SurfaceCard) => void;
 }
 
@@ -65,6 +67,7 @@ export const SurfaceCanvas: React.FC<SurfaceCanvasProps> = ({
   onUpdateViewState,
   isLatentLayerActive = false,
   territories = [],
+  edgeRoutingMode = 'orthogonal-avoid',
   onPredictiveAction,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -85,14 +88,72 @@ export const SurfaceCanvas: React.FC<SurfaceCanvasProps> = ({
 
   // Resizing a Card State
   const [resizingCardId, setResizingCardId] = useState<string | null>(null);
+  const [resizeDirection, setResizeDirection] = useState<'se' | 'e' | 's'>('se');
   const [resizeStart, setResizeStart] = useState({ mouseX: 0, mouseY: 0, initW: 0, initH: 0 });
 
   // Creating a Connection Line State
   const [connectingFromId, setConnectingFromId] = useState<string | null>(null);
   const [connectionCurrentPos, setConnectionCurrentPos] = useState<{ x: number; y: number } | null>(null);
 
+  // Expandable Relationship Selection State
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
+  const [selectedConnPos, setSelectedConnPos] = useState<{ x: number; y: number } | null>(null);
+  const [hoveredConnectionId, setHoveredConnectionId] = useState<string | null>(null);
+
   // File Drag-Over State for Ingesting
   const [isDragOverFile, setIsDragOverFile] = useState(false);
+
+  // Mobile Touch Pan & Pinch-to-Zoom State
+  const [touchState, setTouchState] = useState<{
+    mode: 'none' | 'pan' | 'pinch';
+    startX: number;
+    startY: number;
+    startPanX: number;
+    startPanY: number;
+    startDist: number;
+    startZoom: number;
+    pinchCenter: { x: number; y: number };
+  }>({
+    mode: 'none',
+    startX: 0,
+    startY: 0,
+    startPanX: 0,
+    startPanY: 0,
+    startDist: 0,
+    startZoom: 1,
+    pinchCenter: { x: 0, y: 0 },
+  });
+
+  // Clamp pan coordinates so cards never completely drift off-screen leaving a white void
+  const clampPan = useCallback(
+    (targetPanX: number, targetPanY: number, targetZoom: number) => {
+      if (!cards.length || !containerRef.current) return { x: targetPanX, y: targetPanY };
+      const rect = containerRef.current.getBoundingClientRect();
+      const winW = rect.width || window.innerWidth;
+      const winH = rect.height || window.innerHeight;
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      cards.forEach((c) => {
+        minX = Math.min(minX, c.x);
+        minY = Math.min(minY, c.y);
+        maxX = Math.max(maxX, c.x + c.width);
+        maxY = Math.max(maxY, c.y + c.height);
+      });
+
+      // Maintain visible presence of cards inside viewport (at least 80px overlap)
+      const minPanX = 80 - maxX * targetZoom;
+      const maxPanX = winW - 80 - minX * targetZoom;
+      const minPanY = 80 - maxY * targetZoom;
+      const maxPanY = winH - 80 - minY * targetZoom;
+
+      // If content bounds are smaller than screen, allow centered leeway
+      return {
+        x: Math.max(minPanX, Math.min(maxPanX, targetPanX)),
+        y: Math.max(minPanY, Math.min(maxPanY, targetPanY)),
+      };
+    },
+    [cards]
+  );
 
   // Spacebar hold for smooth panning
   const isSpacePressedRef = useRef(false);
@@ -122,26 +183,110 @@ export const SurfaceCanvas: React.FC<SurfaceCanvasProps> = ({
     };
   }, []);
 
-  // Zooming with focal point tracking
+  // Zooming with focal point tracking & safe mobile minimum zoom
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     if (!containerRef.current) return;
+
+    const isMobile = window.innerWidth < 768;
+    const minAllowedZoom = isMobile ? 0.45 : 0.18;
 
     const rect = containerRef.current.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
     const zoomFactor = e.deltaY < 0 ? 1.1 : 0.909;
-    const newZoom = Math.min(2.5, Math.max(0.15, zoom * zoomFactor));
+    const newZoom = Math.min(2.5, Math.max(minAllowedZoom, zoom * zoomFactor));
 
-    const newPanX = mouseX - (mouseX - panX) * (newZoom / zoom);
-    const newPanY = mouseY - (mouseY - panY) * (newZoom / zoom);
+    const rawPanX = mouseX - (mouseX - panX) * (newZoom / zoom);
+    const rawPanY = mouseY - (mouseY - panY) * (newZoom / zoom);
+    const clamped = clampPan(rawPanX, rawPanY, newZoom);
 
     onUpdateViewState({
-      panX: newPanX,
-      panY: newPanY,
+      panX: clamped.x,
+      panY: clamped.y,
       zoom: newZoom,
     });
+  };
+
+  // Touch handlers for mobile pan & pinch-to-zoom
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      setTouchState({
+        mode: 'pan',
+        startX: t.clientX,
+        startY: t.clientY,
+        startPanX: panX,
+        startPanY: panY,
+        startDist: 0,
+        startZoom: zoom,
+        pinchCenter: { x: t.clientX, y: t.clientY },
+      });
+      onSelectCard(undefined);
+      setSelectedConnectionId(null);
+      setSelectedConnPos(null);
+    } else if (e.touches.length === 2) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      const center = {
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2,
+      };
+      setTouchState({
+        mode: 'pinch',
+        startX: 0,
+        startY: 0,
+        startPanX: panX,
+        startPanY: panY,
+        startDist: dist,
+        startZoom: zoom,
+        pinchCenter: center,
+      });
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchState.mode === 'pan' && e.touches.length === 1) {
+      const t = e.touches[0];
+      const deltaX = t.clientX - touchState.startX;
+      const deltaY = t.clientY - touchState.startY;
+      const clamped = clampPan(touchState.startPanX + deltaX, touchState.startPanY + deltaY, zoom);
+      onUpdateViewState({
+        panX: clamped.x,
+        panY: clamped.y,
+        zoom,
+      });
+    } else if (touchState.mode === 'pinch' && e.touches.length === 2) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      if (touchState.startDist > 0) {
+        const scaleFactor = dist / touchState.startDist;
+        const isMobile = window.innerWidth < 768;
+        const minAllowedZoom = isMobile ? 0.45 : 0.18;
+        const newZoom = Math.min(2.5, Math.max(minAllowedZoom, touchState.startZoom * scaleFactor));
+
+        const rect = containerRef.current?.getBoundingClientRect();
+        const mouseX = touchState.pinchCenter.x - (rect?.left || 0);
+        const mouseY = touchState.pinchCenter.y - (rect?.top || 0);
+
+        const rawPanX = mouseX - (mouseX - touchState.startPanX) * (newZoom / touchState.startZoom);
+        const rawPanY = mouseY - (mouseY - touchState.startPanY) * (newZoom / touchState.startZoom);
+        const clamped = clampPan(rawPanX, rawPanY, newZoom);
+
+        onUpdateViewState({
+          panX: clamped.x,
+          panY: clamped.y,
+          zoom: newZoom,
+        });
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setTouchState((prev) => ({ ...prev, mode: 'none' }));
   };
 
   // Canvas Mouse Down
@@ -150,6 +295,8 @@ export const SurfaceCanvas: React.FC<SurfaceCanvasProps> = ({
       setIsDraggingCanvas(true);
       setDragStart({ x: e.clientX - panX, y: e.clientY - panY });
       onSelectCard(undefined);
+      setSelectedConnectionId(null);
+      setSelectedConnPos(null);
     }
   };
 
@@ -171,12 +318,13 @@ export const SurfaceCanvas: React.FC<SurfaceCanvasProps> = ({
   };
 
   // Start resizing a card
-  const handleCardStartResize = (e: React.MouseEvent, cardId: string) => {
+  const handleCardStartResize = (e: React.MouseEvent, cardId: string, direction: 'se' | 'e' | 's' = 'se') => {
     e.stopPropagation();
     const card = cards.find((c) => c.id === cardId);
     if (!card) return;
 
     setResizingCardId(cardId);
+    setResizeDirection(direction);
     setResizeStart({
       mouseX: e.clientX,
       mouseY: e.clientY,
@@ -238,8 +386,15 @@ export const SurfaceCanvas: React.FC<SurfaceCanvasProps> = ({
     if (resizingCardId) {
       const deltaX = (e.clientX - resizeStart.mouseX) / zoom;
       const deltaY = (e.clientY - resizeStart.mouseY) / zoom;
-      const newW = Math.max(180, Math.round(resizeStart.initW + deltaX));
-      const newH = Math.max(120, Math.round(resizeStart.initH + deltaY));
+      let newW = resizeStart.initW;
+      let newH = resizeStart.initH;
+
+      if (resizeDirection === 'se' || resizeDirection === 'e') {
+        newW = Math.max(200, Math.round(resizeStart.initW + deltaX));
+      }
+      if (resizeDirection === 'se' || resizeDirection === 's') {
+        newH = Math.max(100, Math.round(resizeStart.initH + deltaY));
+      }
 
       onUpdateCard(resizingCardId, {
         width: newW,
@@ -386,59 +541,111 @@ export const SurfaceCanvas: React.FC<SurfaceCanvasProps> = ({
       const toCard = cards.find((c) => c.id === conn.toId);
       if (!fromCard || !toCard) return null;
 
-      const startX = fromCard.x + fromCard.width;
-      const startY = fromCard.y + fromCard.height / 2;
-      const endX = toCard.x;
-      const endY = toCard.y + toCard.height / 2;
-
-      const r = 8;
-      const midX = (startX + endX) / 2;
-      const midY = (startY + endY) / 2;
-
       let pathData = '';
-      if (Math.abs(startY - endY) < 4) {
+      let dotX = 0;
+      let dotY = 0;
+      let labelX = 0;
+      let labelY = 0;
+
+      if (edgeRoutingMode === 'orthogonal-avoid') {
+        const routed = routeOrthogonalEdgeWithObstacleAvoidance(fromCard, toCard, cards, 14);
+        pathData = routed.pathData;
+        dotX = routed.startPoint.x;
+        dotY = routed.startPoint.y;
+        labelX = routed.midPoint.x;
+        labelY = routed.midPoint.y;
+      } else if (edgeRoutingMode === 'direct-straight') {
+        const startX = fromCard.x + fromCard.width;
+        const startY = fromCard.y + fromCard.height / 2;
+        const endX = toCard.x;
+        const endY = toCard.y + toCard.height / 2;
         pathData = `M ${startX} ${startY} L ${endX} ${endY}`;
-      } else if (Math.abs(startX - endX) < 4) {
-        pathData = `M ${startX} ${startY} L ${endX} ${endY}`;
+        dotX = startX;
+        dotY = startY;
+        labelX = (startX + endX) / 2;
+        labelY = (startY + endY) / 2;
       } else {
-        const dirY = endY > startY ? 1 : -1;
-        const dirX = endX > startX ? 1 : -1;
-        
-        pathData = `
-          M ${startX} ${startY}
-          L ${midX - dirX * r} ${startY}
-          Q ${midX} ${startY} ${midX} ${startY + dirY * r}
-          L ${midX} ${endY - dirY * r}
-          Q ${midX} ${endY} ${midX + dirX * r} ${endY}
-          L ${endX} ${endY}
-        `;
+        // Curved S-Spline
+        const startX = fromCard.x + fromCard.width;
+        const startY = fromCard.y + fromCard.height / 2;
+        const endX = toCard.x;
+        const endY = toCard.y + toCard.height / 2;
+        const r = 8;
+        const midX = (startX + endX) / 2;
+        const midY = (startY + endY) / 2;
+        dotX = startX;
+        dotY = startY;
+        labelX = midX;
+        labelY = midY;
+
+        if (Math.abs(startY - endY) < 4 || Math.abs(startX - endX) < 4) {
+          pathData = `M ${startX} ${startY} L ${endX} ${endY}`;
+        } else {
+          const dirY = endY > startY ? 1 : -1;
+          const dirX = endX > startX ? 1 : -1;
+          pathData = `
+            M ${startX} ${startY}
+            L ${midX - dirX * r} ${startY}
+            Q ${midX} ${startY} ${midX} ${startY + dirY * r}
+            L ${midX} ${endY - dirY * r}
+            Q ${midX} ${endY} ${midX + dirX * r} ${endY}
+            L ${endX} ${endY}
+          `;
+        }
       }
 
       // Visual grammar: stroke weight & style communicate semantic relation & confidence
       const isContradiction = conn.semanticType === 'contradicts';
       const isDependency = conn.semanticType === 'depends_on';
-      const strokeWidth = isContradiction ? 2.5 : conn.strength ? 1 + conn.strength * 1.5 : 1.2;
-      const strokeColor = isContradiction 
+      const isSelectedConn = selectedConnectionId === conn.id;
+      const isHoveredConn = hoveredConnectionId === conn.id;
+
+      const strokeWidth = isSelectedConn 
+        ? 2.6 
+        : isContradiction 
+        ? 2.2 
+        : conn.strength 
+        ? 1 + conn.strength * 1.5 
+        : 1.2;
+
+      const strokeColor = isSelectedConn
+        ? '#ea580c'
+        : isContradiction 
         ? '#f43f5e' 
         : isDependency 
         ? '#8b5cf6' 
         : isLatentLayerActive 
         ? '#3b82f6' 
-        : 'currentColor';
+        : '#71717a';
+
+      const shouldShowMicroLabel = isSelectedConn || isHoveredConn || isContradiction || (zoom >= 0.7 && Boolean(conn.label));
 
       return (
-        <g key={conn.id} className="group/conn">
+        <g 
+          key={conn.id} 
+          className="group/conn"
+          onMouseEnter={() => setHoveredConnectionId(conn.id)}
+          onMouseLeave={() => setHoveredConnectionId(prev => prev === conn.id ? null : prev)}
+        >
+          {/* Thick invisible hitbox for easy clicking */}
           <path
             d={pathData}
             fill="none"
             stroke="transparent"
-            strokeWidth={16}
-            className="cursor-pointer"
+            strokeWidth={20}
+            className="cursor-pointer pointer-events-auto"
             onClick={(e) => {
               e.stopPropagation();
-              onDeleteConnection(conn.id);
+              if (selectedConnectionId === conn.id) {
+                setSelectedConnectionId(null);
+                setSelectedConnPos(null);
+              } else {
+                setSelectedConnectionId(conn.id);
+                setSelectedConnPos({ x: labelX, y: labelY });
+              }
             }}
           />
+          {/* Visual stroke */}
           <path
             d={pathData}
             fill="none"
@@ -447,38 +654,51 @@ export const SurfaceCanvas: React.FC<SurfaceCanvasProps> = ({
             strokeDasharray={isContradiction ? '4,4' : conn.style === 'dashed' ? '3,3' : 'none'}
             markerEnd="url(#quiet-arrow)"
             className={`${
-              isContradiction
+              isSelectedConn
+                ? 'opacity-100 filter drop-shadow-[0_0_3px_rgba(234,88,12,0.4)]'
+                : isContradiction
                 ? 'opacity-90'
-                : 'text-zinc-600 dark:text-zinc-400 opacity-80 group-hover/conn:text-rose-500'
-            } transition-colors`}
+                : 'opacity-70 group-hover/conn:opacity-100 group-hover/conn:stroke-orange-500'
+            } transition-all duration-150`}
           />
+          {/* Endpoint origin dot */}
           <circle
-            cx={startX}
-            cy={startY}
+            cx={dotX}
+            cy={dotY}
             r={strokeWidth * 1.2}
             fill={strokeColor}
-            className="transition-colors group-hover/conn:fill-rose-500"
+            className="transition-colors group-hover/conn:fill-orange-500"
           />
-          {conn.label && (
-            <g transform={`translate(${midX}, ${midY})`}>
+
+          {/* Micro-label: Tiny contextual label along relationship that appears only when useful */}
+          {shouldShowMicroLabel && (
+            <g 
+              transform={`translate(${labelX}, ${labelY})`}
+              className="pointer-events-none select-none animate-in fade-in zoom-in-95 duration-100"
+            >
               <rect
-                x="-30"
-                y="-11"
-                width="60"
-                height="12"
+                x="-32"
+                y="-9"
+                width="64"
+                height="16"
                 rx="3"
-                className="fill-white/90 dark:fill-black/90 stroke-black/10 dark:stroke-white/10"
-                strokeWidth="0.5"
+                className="fill-white/95 dark:fill-[#18191e]/95 stroke-zinc-400 dark:stroke-zinc-600 shadow-xs"
+                strokeWidth="0.8"
               />
               <text
                 x="0"
-                y="-2"
+                y="0"
                 textAnchor="middle"
-                className={`text-[8px] font-mono tracking-tight font-bold pointer-events-none select-none ${
-                  isContradiction ? 'fill-rose-600 dark:fill-rose-400' : 'fill-zinc-600 dark:fill-zinc-300'
+                dominantBaseline="middle"
+                className={`text-[8px] font-mono tracking-wider font-semibold uppercase ${
+                  isSelectedConn
+                    ? 'fill-orange-600 dark:fill-orange-400'
+                    : isContradiction
+                    ? 'fill-rose-600 dark:fill-rose-400'
+                    : 'fill-zinc-700 dark:fill-zinc-300'
                 }`}
               >
-                {conn.label}
+                {conn.label || (conn.semanticType ? conn.semanticType.replace('_', ' ') : 'REL')}
               </text>
             </g>
           )}
@@ -530,11 +750,15 @@ export const SurfaceCanvas: React.FC<SurfaceCanvasProps> = ({
       onMouseDown={handleCanvasMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`relative w-full h-full overflow-hidden select-none canvas-grid-dots ${
-        activeTool === 'pan' || isDraggingCanvas ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
+      className={`relative w-full h-full overflow-hidden select-none touch-none canvas-grid-dots ${
+        activeTool === 'pan' || isDraggingCanvas || touchState.mode === 'pan' ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
       }`}
       style={{
         backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
@@ -698,10 +922,153 @@ export const SurfaceCanvas: React.FC<SurfaceCanvasProps> = ({
               onTextDrillDown={handleTextDrillDown}
               onLocationClick={handleLocationClick}
               onPredictiveAction={onPredictiveAction}
+              isResizingThisCard={resizingCardId === card.id}
             />
           </div>
         ))}
       </div>
+
+      {/* EXPANDABLE RELATIONSHIP INSPECTOR */}
+      {(() => {
+        const selectedConn = connections.find((c) => c.id === selectedConnectionId);
+        if (!selectedConn || !selectedConnPos) return null;
+        const fromCard = cards.find((c) => c.id === selectedConn.fromId);
+        const toCard = cards.find((c) => c.id === selectedConn.toId);
+        if (!fromCard || !toCard) return null;
+
+        return (
+          <div
+            style={{
+              position: 'absolute',
+              left: `${selectedConnPos.x * zoom + panX}px`,
+              top: `${selectedConnPos.y * zoom + panY}px`,
+              transform: 'translate(-50%, -100%) translateY(-14px)',
+              zIndex: 60,
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-72 bg-white/98 dark:bg-[#16171b]/98 backdrop-blur-md border border-zinc-300 dark:border-zinc-700 rounded-lg shadow-2xl p-3 text-zinc-900 dark:text-zinc-100 animate-in fade-in zoom-in-95 duration-150 select-none text-xs pointer-events-auto"
+          >
+            {/* Header with from -> to and close button */}
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-center gap-1.5 font-mono text-[10px] text-zinc-500 truncate">
+                <span className="font-semibold text-zinc-800 dark:text-zinc-200 truncate max-w-[90px]">
+                  {fromCard.title}
+                </span>
+                <span>→</span>
+                <span className="font-semibold text-zinc-800 dark:text-zinc-200 truncate max-w-[90px]">
+                  {toCard.title}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedConnectionId(null);
+                  setSelectedConnPos(null);
+                }}
+                className="p-0.5 rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Relationship Details */}
+            <div className="py-2 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">Semantic Type</span>
+                <span className="px-1.5 py-0.2 rounded font-mono text-[9px] font-bold uppercase bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+                  {(selectedConn.semanticType || 'relates_to').replace('_', ' ')}
+                </span>
+              </div>
+
+              {/* Strength / Confidence meter */}
+              <div className="flex items-center justify-between text-[10px] font-mono">
+                <span className="text-zinc-400">Strength / Confidence</span>
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                  {selectedConn.confidence || 88}%
+                </span>
+              </div>
+              <div className="w-full bg-zinc-200 dark:bg-zinc-800 h-1.5 rounded-full overflow-hidden">
+                <div
+                  className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                  style={{ width: `${selectedConn.confidence || 88}%` }}
+                />
+              </div>
+
+              {/* Evidence & Reasoning */}
+              <div className="pt-1">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 mb-0.5">
+                  Evidence & Context
+                </div>
+                <p className="text-[11px] text-zinc-700 dark:text-zinc-300 leading-snug font-sans bg-zinc-50 dark:bg-black/40 rounded p-1.5 border border-zinc-200 dark:border-zinc-800">
+                  {selectedConn.evidenceSnippet ||
+                    selectedConn.reasoning ||
+                    'Direct architectural dependency established via shared consensus and telemetry replication.'}
+                </p>
+              </div>
+
+              {/* History & Source */}
+              <div className="text-[9px] font-mono text-zinc-400 flex items-center justify-between pt-0.5">
+                <span>Origin</span>
+                <span className="truncate max-w-[170px]">
+                  {selectedConn.history || 'Inferred from graph topology'}
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Action Footer */}
+            <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between text-[10px]">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    onDeleteConnection(selectedConn.id);
+                    onAddConnection({
+                      fromId: selectedConn.toId,
+                      toId: selectedConn.fromId,
+                      label: selectedConn.label,
+                      style: selectedConn.style,
+                      semanticType: selectedConn.semanticType,
+                      confidence: selectedConn.confidence,
+                      evidenceSnippet: selectedConn.evidenceSnippet,
+                    });
+                    setSelectedConnectionId(null);
+                    setSelectedConnPos(null);
+                  }}
+                  className="px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-mono text-[9px] text-zinc-700 dark:text-zinc-300 transition-colors"
+                  title="Reverse connection direction"
+                >
+                  ⇄ Reverse
+                </button>
+
+                <button
+                  onClick={() => {
+                    const newStyle = selectedConn.style === 'dashed' ? 'solid' : 'dashed';
+                    onDeleteConnection(selectedConn.id);
+                    onAddConnection({
+                      ...selectedConn,
+                      style: newStyle,
+                    });
+                    setSelectedConnectionId(null);
+                    setSelectedConnPos(null);
+                  }}
+                  className="px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-mono text-[9px] text-zinc-700 dark:text-zinc-300 transition-colors"
+                >
+                  {selectedConn.style === 'dashed' ? 'Solid' : 'Dashed'}
+                </button>
+              </div>
+
+              <button
+                onClick={() => {
+                  onDeleteConnection(selectedConn.id);
+                  setSelectedConnectionId(null);
+                  setSelectedConnPos(null);
+                }}
+                className="px-2 py-1 rounded bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 font-medium text-[10px] transition-colors"
+              >
+                Delete Link
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
