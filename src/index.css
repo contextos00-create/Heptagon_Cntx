@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --canvas-bg: #fbfbfc;
+    --canvas-dot: rgba(0, 0, 0, 0.045);
+    --card-bg: #ffffff;
+    --card-border: rgba(0, 0, 0, 0.06);
+    --card-border-hover: rgba(0, 0, 0, 0.16);
+    --card-header: transparent;
+    --sidebar-bg: #f8f9fa;
+    --text-primary: #18181b;
+    --text-secondary: #71717a;
+    --text-muted: #a1a1aa;
+    --accent-blue: #2563eb;
+  }
+
+  .dark {
+    --canvas-bg: #0d0e11;
+    --canvas-dot: rgba(255, 255, 255, 0.04);
+    --card-bg: #141519;
+    --card-border: rgba(255, 255, 255, 0.06);
+    --card-border-hover: rgba(255, 255, 255, 0.16);
+    --card-header: transparent;
+    --sidebar-bg: #0f1013;
+    --text-primary: #f4f4f5;
+    --text-secondary: #a1a1aa;
+    --text-muted: #52525b;
+    --accent-blue: #3b82f6;
+  }
+}
+
+/* Subtle, unobtrusive scrollbars */
+::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(160, 160, 170, 0.2);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(160, 160, 170, 0.4);
+}
+
+/* Quiet, intelligent spotlight outline */
+@keyframes quiet-spotlight {
+  0% {
+    box-shadow: 0 0 0 1.5px rgba(37, 99, 235, 0.8), 0 8px 24px -6px rgba(0, 0, 0, 0.08);
+  }
+  50% {
+    box-shadow: 0 0 0 2.5px rgba(37, 99, 235, 0.35), 0 12px 32px -8px rgba(0, 0, 0, 0.12);
+  }
+  100% {
+    box-shadow: 0 0 0 1.5px rgba(37, 99, 235, 0.8), 0 8px 24px -6px rgba(0, 0, 0, 0.08);
+  }
+}
+
+.card-spotlight {
+  animation: quiet-spotlight 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  border-color: rgba(37, 99, 235, 0.6) !important;
+}
+
+/* Barely perceptible canvas dot matrix */
+.canvas-grid-dots {
+  background-image: radial-gradient(circle, var(--canvas-dot) 1px, transparent 1px);
+}

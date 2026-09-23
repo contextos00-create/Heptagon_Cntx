@@ -1,0 +1,6 @@
+{
+  "name": "Heptasurface - Visual Knowledge Whiteboard",
+  "description": "Heptabase-inspired visual whiteboarding surface for organizing files and notes with interactive canvas, drag-and-drop file ingestion, and AI auto-zoom.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
