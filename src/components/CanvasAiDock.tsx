@@ -13,10 +13,7 @@ import {
 import { Badge, Select, Tooltip, ActionIcon } from '@mantine/core';
 import { AnimatePresence, motion } from 'motion/react';
 import type { SurfaceCard, Whiteboard } from '../types/surface';
-import {
-  CANVAS_AI_QUICK_PROMPTS,
-  type CanvasAiChatController,
-} from '../ai/useCanvasAiChat';
+import type { CanvasAiChatController } from '../ai/useCanvasAiChat';
 
 const FOLD_AWAY_MS = 5000;
 
@@ -321,23 +318,7 @@ export const CanvasAiDock: React.FC<CanvasAiDockProps> = ({
           )}
         </AnimatePresence>
 
-        <div className={`${frameClass} px-2.5 py-2 space-y-1.5`}>
-          <div className="flex flex-wrap gap-1 px-0.5">
-            {CANVAS_AI_QUICK_PROMPTS.map((p) => (
-              <button
-                key={p}
-                type="button"
-                disabled={isRunning}
-                onClick={() => {
-                  expandAndStay();
-                  handleRun(p);
-                }}
-                className="text-[10px] px-1.5 py-0.5 rounded-full border border-zinc-300 dark:border-zinc-600 hover:border-orange-500 text-zinc-700 dark:text-zinc-200 bg-zinc-50 dark:bg-zinc-800"
-              >
-                {p}
-              </button>
-            ))}
-          </div>
+        <div className={`${frameClass} px-2.5 py-2`}>
           <form
             className="flex items-end gap-1.5"
             onSubmit={(e) => {
