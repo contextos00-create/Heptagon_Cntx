@@ -32,7 +32,7 @@ export const GhostCardNode: React.FC<GhostCardNodeProps> = ({
         onMaterialize(ghost, sourceCardId);
       }}
       title="Potential card: double-click to materialize onto surface"
-      className="absolute rounded-md border-[1.5px] border-dashed border-zinc-700/50 dark:border-zinc-400/50 bg-white/40 dark:bg-black/30 hover:bg-white/80 dark:hover:bg-zinc-900/60 hover:border-black dark:hover:border-white transition-all cursor-pointer group flex flex-col justify-between p-2 select-none shadow-xs"
+      className="absolute rounded-md border-[1.5px] border-dashed border-zinc-700/50 dark:border-zinc-400/50 bg-[color-mix(in_srgb,var(--card-bg)_40%,transparent)] dark:bg-black/30 hover:bg-[color-mix(in_srgb,var(--card-bg)_85%,transparent)] dark:hover:bg-zinc-900/60 hover:border-black dark:hover:border-white transition-all cursor-pointer group flex flex-col justify-between p-2 select-none shadow-xs"
     >
       {/* Ghost Header */}
       <div className="flex items-center justify-between text-zinc-600 dark:text-zinc-300">

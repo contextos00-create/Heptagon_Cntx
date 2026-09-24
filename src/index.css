@@ -1,12 +1,16 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
+/* Class-based dark mode (html.dark / html.dark.skin-hepta-dark) — not OS media query */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   :root {
     /* Light skin */
     --canvas-bg: #f3f4f6;
     --canvas-dot: rgba(0, 0, 0, 0.038);
     --card-bg: #ffffff;
+    --card-bg-elevated: #ffffff;
     --card-border: #d4d4d8;
     --card-border-hover: #71717a;
     --card-header: transparent;
@@ -30,7 +34,8 @@
   .dark {
     --canvas-bg: #111215;
     --canvas-dot: rgba(255, 255, 255, 0.03);
-    --card-bg: #17181c;
+    --card-bg: #16171a;
+    --card-bg-elevated: #1a1b1f;
     --card-border: #27272a;
     --card-border-hover: #52525b;
     --card-header: transparent;
@@ -49,16 +54,16 @@
 
   /*
    * Hepta Dark skin — ported from contextos00-create/Hepta_dark
-   * Deeper blueprint black + cyan accent + technical mono typography.
-   * Applied as: <html class="dark skin-hepta-dark">
+   * Deeper blueprint black + cyan accent + dark artifact cards.
    */
   .dark.skin-hepta-dark {
     --canvas-bg: #08090d;
     --canvas-dot: rgba(255, 255, 255, 0.055);
-    --card-bg: #0c0e14;
+    --card-bg: #0b0c12;
+    --card-bg-elevated: #12141d;
     --card-border: rgba(255, 255, 255, 0.12);
     --card-border-hover: rgba(56, 189, 248, 0.55);
-    --card-header: transparent;
+    --card-header: rgba(18, 20, 29, 0.9);
     --sidebar-bg: #06070a;
     --chrome-bg: #06070a;
     --panel-bg: #090b10;
@@ -146,6 +151,47 @@
 .canvas-grid-dots {
   background-color: var(--canvas-bg);
   background-image: radial-gradient(circle, var(--canvas-dot) 1px, transparent 1px);
+}
+
+/* Artifact cards / panels always follow skin tokens */
+.surface-card-artifact {
+  background-color: var(--card-bg) !important;
+  color: var(--text-primary);
+  border-color: var(--card-border);
+}
+.dark .surface-card-artifact {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+}
+.dark.skin-hepta-dark .surface-card-artifact {
+  background-color: rgba(11, 12, 18, 0.95) !important;
+  border-color: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.55);
+}
+.dark.skin-hepta-dark .surface-card-artifact .bg-white,
+.dark.skin-hepta-dark .surface-card-artifact .bg-white\/95,
+.dark.skin-hepta-dark .surface-card-artifact .bg-white\/98,
+.dark .surface-card-artifact .bg-white,
+.dark .surface-card-artifact .dark\:bg-\[\#121316\] {
+  background-color: var(--card-bg-elevated) !important;
+}
+
+/* Tables / grids nested in cards */
+.dark .surface-card-artifact table,
+.dark.skin-hepta-dark .surface-card-artifact table {
+  background-color: transparent;
+}
+.dark .surface-card-artifact pre,
+.dark.skin-hepta-dark .surface-card-artifact pre,
+.dark .surface-card-artifact code {
+  background-color: rgba(0, 0, 0, 0.35);
+  color: var(--text-secondary);
+}
+.dark.skin-hepta-dark .surface-card-artifact pre,
+.dark.skin-hepta-dark .surface-card-artifact code {
+  background-color: #030407;
+  color: #e2e8f0;
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .dark.skin-hepta-dark .canvas-grid-dots {

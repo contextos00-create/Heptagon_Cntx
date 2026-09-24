@@ -684,7 +684,7 @@ export const CardNode: React.FC<CardNodeProps> = ({
     // 10. IMAGE
     if (card.type === 'image') {
       return (
-        <div className="h-full flex flex-col items-center justify-center overflow-hidden rounded bg-zinc-50 dark:bg-black/30 relative">
+        <div className="h-full flex flex-col items-center justify-center overflow-hidden rounded bg-zinc-50 dark:bg-black/40 relative">
           <img
             src={card.fileMetadata?.dataUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=600&q=80'}
             alt={card.title}
@@ -777,7 +777,7 @@ export const CardNode: React.FC<CardNodeProps> = ({
           onEndConnect(card.id);
         }
       }}
-      className={`absolute rounded-md border select-none group flex flex-col bg-white dark:bg-[#16171a] transition-all duration-100 ${
+      className={`absolute rounded-md border select-none group flex flex-col surface-card-artifact bg-[var(--card-bg)] text-[var(--text-primary)] transition-all duration-100 ${
         isSpotlight
           ? 'card-spotlight'
           : isSelected
@@ -892,7 +892,7 @@ export const CardNode: React.FC<CardNodeProps> = ({
       {/* ======================================================= */}
       {/* EDITORIAL CARD HEADER: Compact with distinct hierarchy */}
       {/* ======================================================= */}
-      <div className="flex items-center justify-between px-2 py-1 cursor-grab active:cursor-grabbing border-b border-zinc-200 dark:border-zinc-800/90 bg-zinc-50/70 dark:bg-zinc-900/40 shrink-0">
+      <div className="flex items-center justify-between px-2 py-1 cursor-grab active:cursor-grabbing border-b border-zinc-200 dark:border-zinc-800/90 bg-zinc-50/70 dark:bg-[var(--card-bg-elevated)] shrink-0">
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${theme.dot}`} />
           
