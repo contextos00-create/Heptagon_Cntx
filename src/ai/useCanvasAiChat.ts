@@ -75,7 +75,7 @@ export function useCanvasAiChat({
   const [activeProposal, setActiveProposal] = useState<ChangeProposal | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [runState, setRunState] = useState<'idle' | 'running' | 'error'>('idle');
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     fetchCanvasModels()

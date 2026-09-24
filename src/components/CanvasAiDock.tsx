@@ -9,7 +9,6 @@ import {
   Loader2,
   AlertTriangle,
   ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 import { Badge, Select, Tooltip, ActionIcon } from '@mantine/core';
 import type { SurfaceCard, Whiteboard } from '../types/surface';
@@ -18,6 +17,8 @@ import {
   type CanvasAiChatController,
 } from '../ai/useCanvasAiChat';
 
+const FOLD_AWAY_MS = 5000;
+
 interface CanvasAiDockProps {
   board: Whiteboard & { version?: number };
   chat: CanvasAiChatController;
@@ -25,10 +26,12 @@ interface CanvasAiDockProps {
   bottomOffsetPx?: number;
 }
 
+const frameClass =
+  'rounded-2xl border border-zinc-300 dark:border-zinc-600 bg-[var(--card-bg,#ffffff)] dark:bg-zinc-900 shadow-lg';
+
 /**
- * Forever canvas chat composer — fixed to the viewport bottom-center,
- * above the latent/control bars. Transparent shell; transcript rises ~4in.
- * Shares LangGraph / CopilotKit canvas-ai controls via useCanvasAiChat.
+ * Forever canvas chat composer — fixed bottom-center above control bars.
+ * Framed solid shell; transcript rises ~4in and auto-folds 5s after click-away.
  */
 export const CanvasAiDock: React.FC<CanvasAiDockProps> = ({
   board,
@@ -36,6 +39,8 @@ export const CanvasAiDock: React.FC<CanvasAiDockProps> = ({
   bottomOffsetPx = 72,
 }) => {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const foldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const {
     messages,
     input,
@@ -62,10 +67,67 @@ export const CanvasAiDock: React.FC<CanvasAiDockProps> = ({
     handleCitationClick,
   } = chat;
 
+  const isRunningRef = useRef(isRunning);
+  const activeProposalRef = useRef(activeProposal);
+  const awayRef = useRef(false);
+  isRunningRef.current = isRunning;
+  activeProposalRef.current = activeProposal;
+
+  const clearFoldTimer = () => {
+    if (foldTimerRef.current) {
+      clearTimeout(foldTimerRef.current);
+      foldTimerRef.current = null;
+    }
+  };
+
+  const scheduleFold = () => {
+    clearFoldTimer();
+    foldTimerRef.current = setTimeout(() => {
+      if (isRunningRef.current || activeProposalRef.current) return;
+      setExpanded(false);
+      setShowSettings(false);
+      awayRef.current = false;
+    }, FOLD_AWAY_MS);
+  };
+
+  useEffect(() => {
+    return () => clearFoldTimer();
+  }, []);
+
   useEffect(() => {
     if (!expanded || !scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, expanded, activeProposal]);
+
+  // Click away → fold after 5s; interaction inside cancels
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      const root = rootRef.current;
+      if (!root) return;
+      const target = e.target as Node | null;
+      if (target && root.contains(target)) {
+        awayRef.current = false;
+        clearFoldTimer();
+        return;
+      }
+      awayRef.current = true;
+      if (expanded) scheduleFold();
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [expanded]);
+
+  // If user clicked away during a run, fold 5s after the run/proposal settles
+  useEffect(() => {
+    if (isRunning || activeProposal || !expanded || !awayRef.current) return;
+    scheduleFold();
+  }, [isRunning, activeProposal, expanded]);
+
+  const expandAndStay = () => {
+    awayRef.current = false;
+    clearFoldTimer();
+    setExpanded(true);
+  };
 
   return (
     <div
@@ -73,177 +135,178 @@ export const CanvasAiDock: React.FC<CanvasAiDockProps> = ({
       style={{ bottom: bottomOffsetPx }}
       aria-label="Canvas AI forever composer"
     >
-      <div className="pointer-events-auto w-full max-w-[640px] flex flex-col gap-1.5">
-        {/* Rising transcript — ~4 inches (24rem), transparent */}
-        {expanded && (
-          <div className="relative rounded-xl border border-white/25 dark:border-white/10 bg-transparent backdrop-blur-[2px] shadow-[0_8px_32px_rgba(0,0,0,0.12)] overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/20 dark:border-white/10">
-              <div className="flex items-center gap-1.5 min-w-0 text-[11px]">
-                <Sparkles className="w-3.5 h-3.5 text-orange-600 shrink-0" />
-                <span className="font-semibold truncate">Canvas AI</span>
-                <span className="font-mono text-zinc-500 truncate">
-                  {activeModelLabel}
-                  {runState === 'running' ? ' · running' : ''}
-                  {selectedNoteIds.length > 0 ? ` · ${selectedNoteIds.length} selected` : ''}
-                </span>
-              </div>
-              <div className="flex items-center gap-0.5">
-                <Tooltip label="Model settings">
-                  <ActionIcon
-                    variant="subtle"
-                    size="sm"
-                    onClick={() => setShowSettings((v) => !v)}
-                    aria-label="Model settings"
-                  >
-                    <Settings2 className="w-3.5 h-3.5" />
-                  </ActionIcon>
-                </Tooltip>
-                <Tooltip label="Undo last AI apply">
-                  <ActionIcon variant="subtle" size="sm" onClick={handleUndo} aria-label="Undo">
-                    <Undo2 className="w-3.5 h-3.5" />
-                  </ActionIcon>
-                </Tooltip>
+      <div
+        ref={rootRef}
+        className="pointer-events-auto w-full max-w-[640px] flex flex-col gap-1.5"
+        onFocusCapture={expandAndStay}
+        onPointerDownCapture={clearFoldTimer}
+      >
+        {/* Rising transcript — ~4 inches, framed */}
+        <div
+          className={`${frameClass} overflow-hidden transition-[max-height,opacity] duration-300 ease-out ${
+            expanded ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+          style={{ maxHeight: expanded ? '28rem' : '0rem' }}
+          aria-hidden={!expanded}
+        >
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-700">
+            <div className="flex items-center gap-1.5 min-w-0 text-[11px]">
+              <Sparkles className="w-3.5 h-3.5 text-orange-600 shrink-0" />
+              <span className="font-semibold truncate">Canvas AI</span>
+              <span className="font-mono text-zinc-500 truncate">
+                {activeModelLabel}
+                {runState === 'running' ? ' · running' : ''}
+                {selectedNoteIds.length > 0 ? ` · ${selectedNoteIds.length} selected` : ''}
+              </span>
+            </div>
+            <div className="flex items-center gap-0.5">
+              <Tooltip label="Model settings">
                 <ActionIcon
                   variant="subtle"
                   size="sm"
-                  onClick={() => setExpanded(false)}
-                  aria-label="Collapse transcript"
+                  onClick={() => setShowSettings((v) => !v)}
+                  aria-label="Model settings"
                 >
-                  <ChevronDown className="w-3.5 h-3.5" />
+                  <Settings2 className="w-3.5 h-3.5" />
                 </ActionIcon>
-              </div>
+              </Tooltip>
+              <Tooltip label="Undo last AI apply">
+                <ActionIcon variant="subtle" size="sm" onClick={handleUndo} aria-label="Undo">
+                  <Undo2 className="w-3.5 h-3.5" />
+                </ActionIcon>
+              </Tooltip>
+              <ActionIcon
+                variant="subtle"
+                size="sm"
+                onClick={() => {
+                  clearFoldTimer();
+                  setExpanded(false);
+                  setShowSettings(false);
+                }}
+                aria-label="Collapse transcript"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </ActionIcon>
             </div>
+          </div>
 
-            {showSettings && (
-              <div className="px-3 py-2 border-b border-white/20 dark:border-white/10 space-y-2 bg-transparent">
-                <Select
-                  size="xs"
-                  label="Model profile"
-                  value={modelProfileId}
-                  onChange={(v) => v && setModelProfileId(v)}
-                  data={models.map((m) => ({ value: m.id, label: m.label }))}
-                />
-                <Select
-                  size="xs"
-                  label="Task preset"
-                  value={taskPreset}
-                  onChange={(v) => v && setTaskPreset(v as typeof taskPreset)}
-                  data={[
-                    { value: 'chat', label: 'Chat / Q&A' },
-                    { value: 'synthesis', label: 'Synthesis' },
-                    { value: 'layout', label: 'Layout' },
-                    { value: 'extraction', label: 'Extraction' },
-                  ]}
-                />
-              </div>
-            )}
+          {showSettings && (
+            <div className="px-3 py-2 border-b border-zinc-200 dark:border-zinc-700 space-y-2 bg-zinc-50 dark:bg-zinc-950/60">
+              <Select
+                size="xs"
+                label="Model profile"
+                value={modelProfileId}
+                onChange={(v) => v && setModelProfileId(v)}
+                data={models.map((m) => ({ value: m.id, label: m.label }))}
+              />
+              <Select
+                size="xs"
+                label="Task preset"
+                value={taskPreset}
+                onChange={(v) => v && setTaskPreset(v as typeof taskPreset)}
+                data={[
+                  { value: 'chat', label: 'Chat / Q&A' },
+                  { value: 'synthesis', label: 'Synthesis' },
+                  { value: 'layout', label: 'Layout' },
+                  { value: 'extraction', label: 'Extraction' },
+                ]}
+              />
+            </div>
+          )}
 
-            {lastError && (
-              <div className="px-3 py-1.5 text-[11px] text-amber-900 dark:text-amber-100 flex items-start gap-1.5 bg-amber-500/15">
-                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                <span>{lastError}</span>
-              </div>
-            )}
+          {lastError && (
+            <div className="px-3 py-1.5 text-[11px] text-amber-900 dark:text-amber-100 flex items-start gap-1.5 bg-amber-50 dark:bg-amber-950/40">
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>{lastError}</span>
+            </div>
+          )}
 
-            <div
-              ref={scrollRef}
-              className="px-3 py-2 overflow-y-auto space-y-2.5"
-              style={{ maxHeight: '24rem' /* ~4 inches */ }}
-            >
-              {messages.map((m) => (
-                <div
-                  key={m.id}
-                  className={`text-[12px] leading-relaxed ${
-                    m.role === 'user'
-                      ? 'ml-6 rounded-lg bg-orange-600/15 px-2.5 py-1.5'
-                      : m.role === 'system'
-                        ? 'text-zinc-500 italic'
-                        : 'mr-2'
-                  }`}
-                >
-                  <div className="whitespace-pre-wrap drop-shadow-[0_1px_1px_rgba(255,255,255,0.6)] dark:drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-                    {m.text}
+          <div
+            ref={scrollRef}
+            className="px-3 py-2 overflow-y-auto space-y-2.5"
+            style={{ maxHeight: '24rem' /* ~4 inches */ }}
+          >
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`text-[12px] leading-relaxed ${
+                  m.role === 'user'
+                    ? 'ml-6 rounded-lg bg-orange-600/10 dark:bg-orange-500/15 px-2.5 py-1.5'
+                    : m.role === 'system'
+                      ? 'text-zinc-500 italic'
+                      : 'mr-2'
+                }`}
+              >
+                <div className="whitespace-pre-wrap">{m.text}</div>
+                {m.citedNoteIds && m.citedNoteIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {m.citedNoteIds.map((id) => {
+                      const card = board.cards.find((c: SurfaceCard) => c.id === id);
+                      return (
+                        <Badge
+                          key={id}
+                          size="xs"
+                          variant="outline"
+                          className="cursor-pointer hover:border-orange-500"
+                          onClick={() => handleCitationClick(id)}
+                        >
+                          {card?.title?.slice(0, 28) || id}
+                        </Badge>
+                      );
+                    })}
                   </div>
-                  {m.citedNoteIds && m.citedNoteIds.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {m.citedNoteIds.map((id) => {
-                        const card = board.cards.find((c: SurfaceCard) => c.id === id);
-                        return (
-                          <Badge
-                            key={id}
-                            size="xs"
-                            variant="outline"
-                            className="cursor-pointer hover:border-orange-500 bg-white/40 dark:bg-black/30"
-                            onClick={() => handleCitationClick(id)}
-                          >
-                            {card?.title?.slice(0, 28) || id}
-                          </Badge>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {m.modelProfileId && (
-                    <div className="mt-1 text-[9px] font-mono text-zinc-500">
-                      {m.modelProfileId}
-                      {typeof m.latencyMs === 'number' ? ` · ${m.latencyMs}ms` : ''}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {activeProposal && (
-              <div className="border-t border-dashed border-violet-400/50 px-3 py-2 space-y-1.5 bg-violet-500/10">
-                <div className="text-[11px] font-semibold text-violet-900 dark:text-violet-200">
-                  Proposed changes ({activeProposal.operations.length})
-                </div>
-                <p className="text-[11px] text-zinc-700 dark:text-zinc-300 line-clamp-2">
-                  {activeProposal.rationale}
-                </p>
-                <div className="flex gap-1.5">
-                  <button
-                    type="button"
-                    onClick={handleApply}
-                    className="flex-1 inline-flex items-center justify-center gap-1 rounded-md bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-semibold py-1.5"
-                  >
-                    <Check className="w-3 h-3" /> Apply
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDiscard}
-                    className="flex-1 inline-flex items-center justify-center gap-1 rounded-md border border-zinc-400/60 dark:border-zinc-500 text-[11px] font-semibold py-1.5 bg-white/30 dark:bg-black/20"
-                  >
-                    <Trash2 className="w-3 h-3" /> Discard
-                  </button>
-                </div>
+                )}
+                {m.modelProfileId && (
+                  <div className="mt-1 text-[9px] font-mono text-zinc-500">
+                    {m.modelProfileId}
+                    {typeof m.latencyMs === 'number' ? ` · ${m.latencyMs}ms` : ''}
+                  </div>
+                )}
               </div>
-            )}
+            ))}
           </div>
-        )}
 
-        {!expanded && (
-          <div className="flex justify-center">
-            <button
-              type="button"
-              onClick={() => setExpanded(true)}
-              className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-600 dark:text-zinc-300 bg-transparent hover:text-orange-600 px-2 py-0.5"
-            >
-              <ChevronUp className="w-3 h-3" />
-              Show thread
-            </button>
-          </div>
-        )}
+          {activeProposal && (
+            <div className="border-t border-dashed border-violet-400/60 px-3 py-2 space-y-1.5 bg-violet-50 dark:bg-violet-950/30">
+              <div className="text-[11px] font-semibold text-violet-900 dark:text-violet-200">
+                Proposed changes ({activeProposal.operations.length})
+              </div>
+              <p className="text-[11px] text-zinc-700 dark:text-zinc-300 line-clamp-2">
+                {activeProposal.rationale}
+              </p>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleApply}
+                  className="flex-1 inline-flex items-center justify-center gap-1 rounded-md bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-semibold py-1.5"
+                >
+                  <Check className="w-3 h-3" /> Apply
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDiscard}
+                  className="flex-1 inline-flex items-center justify-center gap-1 rounded-md border border-zinc-300 dark:border-zinc-600 text-[11px] font-semibold py-1.5"
+                >
+                  <Trash2 className="w-3 h-3" /> Discard
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
 
-        {/* Forever composer row */}
-        <div className="rounded-2xl border border-white/30 dark:border-white/15 bg-transparent backdrop-blur-[2px] shadow-[0_4px_24px_rgba(0,0,0,0.1)] px-2.5 py-2 space-y-1.5">
+        {/* Forever composer row — always visible, framed */}
+        <div className={`${frameClass} px-2.5 py-2 space-y-1.5`}>
           <div className="flex flex-wrap gap-1 px-0.5">
             {CANVAS_AI_QUICK_PROMPTS.map((p) => (
               <button
                 key={p}
                 type="button"
                 disabled={isRunning}
-                onClick={() => handleRun(p)}
-                className="text-[10px] px-1.5 py-0.5 rounded-full border border-zinc-400/40 dark:border-zinc-500/50 hover:border-orange-500 text-zinc-700 dark:text-zinc-200 bg-white/25 dark:bg-black/20"
+                onClick={() => {
+                  expandAndStay();
+                  handleRun(p);
+                }}
+                className="text-[10px] px-1.5 py-0.5 rounded-full border border-zinc-300 dark:border-zinc-600 hover:border-orange-500 text-zinc-700 dark:text-zinc-200 bg-zinc-50 dark:bg-zinc-800"
               >
                 {p}
               </button>
@@ -265,14 +328,14 @@ export const CanvasAiDock: React.FC<CanvasAiDockProps> = ({
                   ? 'Ask about the selection…'
                   : 'Ask about this board…'
               }
-              className="flex-1 resize-none rounded-xl border border-zinc-400/35 dark:border-zinc-500/40 bg-transparent px-3 py-2 text-[13px] focus:outline-none focus:border-orange-500 placeholder:text-zinc-500"
+              className="flex-1 resize-none rounded-xl border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-950/50 px-3 py-2 text-[13px] focus:outline-none focus:border-orange-500 placeholder:text-zinc-500"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleRun();
                 }
               }}
-              onFocus={() => setExpanded(true)}
+              onFocus={expandAndStay}
             />
             <button
               type="submit"
