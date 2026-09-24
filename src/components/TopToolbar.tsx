@@ -27,7 +27,8 @@ import {
   Check,
   ChevronDown,
   Smartphone,
-  Cloud
+  Cloud,
+  Cpu
 } from 'lucide-react';
 import { Tooltip, Badge, ActionIcon, Group, Menu } from '@mantine/core';
 import { 
@@ -35,7 +36,9 @@ import {
   ThemeMode, 
   GraphLayoutAlgorithm, 
   LayoutTightness, 
-  EdgeRoutingMode 
+  EdgeRoutingMode,
+  themeModeLabel,
+  nextThemeMode,
 } from '../types/surface';
 
 interface TopToolbarProps {
@@ -446,9 +449,24 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           </Tooltip>
         </Group>
 
-        <Tooltip label={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} mode`}>
-          <ActionIcon onClick={onToggleTheme} variant="subtle" color="gray" size="sm">
-            {theme === 'dark' ? <Moon className="w-3 h-3" /> : <Sun className="w-3 h-3" />}
+        {theme === 'hepta-dark' && (
+          <Badge
+            variant="outline"
+            color="cyan"
+            size="xs"
+            className="hidden sm:inline-flex font-mono text-[9px] uppercase tracking-wider"
+          >
+            Hepta Dark
+          </Badge>
+        )}
+
+        <Tooltip
+          label={`Theme: ${themeModeLabel(theme)} → ${themeModeLabel(nextThemeMode(theme))}`}
+        >
+          <ActionIcon onClick={onToggleTheme} variant="subtle" color="gray" size="sm" aria-label="Cycle theme">
+            {theme === 'light' && <Sun className="w-3 h-3" />}
+            {theme === 'dark' && <Moon className="w-3 h-3" />}
+            {theme === 'hepta-dark' && <Cpu className="w-3 h-3 text-sky-400" />}
           </ActionIcon>
         </Tooltip>
 

@@ -7,7 +7,8 @@ import {
   ThemeMode,
   GraphLayoutAlgorithm,
   EdgeRoutingMode,
-  LayoutTightness
+  LayoutTightness,
+  nextThemeMode,
 } from './types/surface';
 import { 
   LatentEngineState, 
@@ -47,27 +48,34 @@ import {
 import { applyGraphLayout } from './utils/graphLayoutEngine';
 
 const STORAGE_KEY = 'heptasurface_data_v4_scale_datagrid';
-const THEME_KEY = 'heptasurface_theme_v1';
+const THEME_KEY = 'heptasurface_theme_v2';
 
 export default function App() {
-  // Theme state: dark / light
+  // Theme state: light / dark / hepta-dark (optional blueprint skin from Hepta_dark)
   const [theme, setTheme] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(THEME_KEY);
-    if (saved === 'dark' || saved === 'light') return saved;
+    if (saved === 'dark' || saved === 'light' || saved === 'hepta-dark') return saved;
+    // migrate v1 key
+    const legacy = localStorage.getItem('heptasurface_theme_v1');
+    if (legacy === 'dark' || legacy === 'light') return legacy;
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
 
   useEffect(() => {
+    const root = document.documentElement;
+    root.classList.remove('dark', 'skin-hepta-dark');
     if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+      root.classList.add('dark');
+    } else if (theme === 'hepta-dark') {
+      root.classList.add('dark', 'skin-hepta-dark');
     }
+    root.setAttribute('data-theme', theme);
     localStorage.setItem(THEME_KEY, theme);
+    window.dispatchEvent(new CustomEvent('hepta-theme-change', { detail: theme }));
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+    setTheme((prev) => nextThemeMode(prev));
   };
 
   // Whiteboards data state
@@ -850,7 +858,15 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-white dark:bg-[#0c0d10] font-sans antialiased text-zinc-900 dark:text-zinc-100">
+    <div
+      className={`flex h-screen w-screen overflow-hidden font-sans antialiased ${
+        theme === 'hepta-dark'
+          ? 'bg-[#08090d] text-zinc-100'
+          : theme === 'dark'
+            ? 'bg-[#0c0d10] text-zinc-100'
+            : 'bg-white text-zinc-900'
+      }`}
+    >
       
       {/* Left Collapsible Navigation (With Protruding Orange Tab When Hidden) */}
       <Sidebar
