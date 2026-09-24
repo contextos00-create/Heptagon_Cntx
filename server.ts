@@ -4,8 +4,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import { GoogleGenAI } from '@google/genai';
-import { CopilotRuntime, BuiltInAgent } from '@copilotkit/runtime/v2';
-import { createCopilotEndpointSingleRouteExpress } from '@copilotkit/runtime/v2/express';
 import { boardCommandStore, resolveContextNotes } from './src/ai/boardCommandStore';
 import { listEnabledModels, resolveModelProfile, toCopilotKitModelId } from './src/ai/modelRegistry';
 import { runNoteCanvasAgent } from './src/ai/langgraph/noteCanvasAgent';
@@ -459,37 +457,47 @@ app.post('/api/canvas-ai/undo', (req, res) => {
 });
 
 // CopilotKit v2 single-route runtime (BuiltInAgent bridge; LangGraph owns canvas runs)
-try {
-  const googleKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
-  if (googleKey && !process.env.GOOGLE_API_KEY) {
-    process.env.GOOGLE_API_KEY = googleKey;
+// Loaded via createRequire(CJS) so tsx does not resolve fast-json-patch's .ts sources.
+async function mountCopilotKit() {
+  try {
+    const googleKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+    if (googleKey && !process.env.GOOGLE_API_KEY) {
+      process.env.GOOGLE_API_KEY = googleKey;
+    }
+    const { createRequire } = await import('module');
+    const require = createRequire(import.meta.url);
+    const {
+      CopilotRuntime,
+      BuiltInAgent,
+      createCopilotEndpointSingleRouteExpress,
+    } = require('@copilotkit/runtime/v2');
+    const defaultProfile = resolveModelProfile('gemini-flash', 'chat');
+    const copilotRuntime = new CopilotRuntime({
+      agents: {
+        'note-canvas': new BuiltInAgent({
+          model: toCopilotKitModelId(defaultProfile),
+          apiKey: googleKey || undefined,
+          temperature: 0.2,
+          prompt: `You are the Heptasurface canvas AI bridge. Prefer the /api/canvas-ai/run LangGraph endpoint for grounded board answers and proposals. Do not invent canvas coordinates. Never expose API keys.`,
+        }),
+        default: new BuiltInAgent({
+          model: toCopilotKitModelId(defaultProfile),
+          apiKey: googleKey || undefined,
+          temperature: 0.2,
+          prompt: `You are the Heptasurface assistant. Ground answers in board notes when context is provided.`,
+        }),
+      },
+    });
+    app.use(
+      createCopilotEndpointSingleRouteExpress({
+        runtime: copilotRuntime,
+        basePath: '/api/copilotkit',
+      })
+    );
+    console.log('CopilotKit runtime mounted at /api/copilotkit (agent: note-canvas)');
+  } catch (err) {
+    console.warn('CopilotKit runtime not mounted:', err);
   }
-  const defaultProfile = resolveModelProfile('gemini-flash', 'chat');
-  const copilotRuntime = new CopilotRuntime({
-    agents: {
-      'note-canvas': new BuiltInAgent({
-        model: toCopilotKitModelId(defaultProfile) as any,
-        apiKey: googleKey || undefined,
-        temperature: 0.2,
-        prompt: `You are the Heptasurface canvas AI bridge. Prefer the /api/canvas-ai/run LangGraph endpoint for grounded board answers and proposals. Do not invent canvas coordinates. Never expose API keys.`,
-      }),
-      default: new BuiltInAgent({
-        model: toCopilotKitModelId(defaultProfile) as any,
-        apiKey: googleKey || undefined,
-        temperature: 0.2,
-        prompt: `You are the Heptasurface assistant. Ground answers in board notes when context is provided.`,
-      }),
-    },
-  });
-  app.use(
-    createCopilotEndpointSingleRouteExpress({
-      runtime: copilotRuntime,
-      basePath: '/api/copilotkit',
-    })
-  );
-  console.log('CopilotKit runtime mounted at /api/copilotkit (agent: note-canvas)');
-} catch (err) {
-  console.warn('CopilotKit runtime not mounted:', err);
 }
 
 // TanStack AI endpoint compatible with @tanstack/ai
@@ -1075,6 +1083,8 @@ app.post('/api/google/drive/import', async (req, res) => {
 
 // Setup Vite middleware for development or static serving for production
 async function startServer() {
+  await mountCopilotKit();
+
   const isProd = process.env.NODE_ENV === 'production';
 
   if (!isProd) {
