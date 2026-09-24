@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import {
   Sparkles,
   Send,
@@ -13,313 +13,60 @@ import {
 } from 'lucide-react';
 import { Badge, Select, Tooltip, ActionIcon, ScrollArea } from '@mantine/core';
 import type { SurfaceCard, Whiteboard } from '../types/surface';
-import type {
-  CanvasAiAnswer,
-  CanvasContext,
-  ChangeProposal,
-  ModelProfile,
-} from '../ai/canvasTypes';
 import {
-  applyCanvasProposal,
-  discardCanvasProposal,
-  fetchCanvasModels,
-  runCanvasAi,
-  syncBoardToServer,
-  undoCanvasProposal,
-} from '../ai/canvasAiClient';
-
-export type CanvasAiMessage = {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  text: string;
-  citedNoteIds?: string[];
-  focusNoteId?: string;
-  proposal?: ChangeProposal;
-  modelProfileId?: string;
-  latencyMs?: number;
-  error?: string;
-};
+  CANVAS_AI_QUICK_PROMPTS,
+  type CanvasAiChatController,
+} from '../ai/useCanvasAiChat';
 
 interface CanvasAiPanelProps {
   isOpen: boolean;
   onClose: () => void;
   onOpen: () => void;
   board: Whiteboard & { version?: number };
-  selectedNoteIds: string[];
-  visibleNoteIds: string[];
-  viewport: { x: number; y: number; zoom: number };
-  onZoomToCard: (cardId: string) => void;
-  onBoardReplaced: (board: Whiteboard & { version?: number }) => void;
-  onProposalPreview: (proposal: ChangeProposal | null) => void;
-  autoZoomEnabled: boolean;
+  chat: CanvasAiChatController;
 }
 
-const QUICK_PROMPTS = [
-  'Summarize these',
-  'Find the contradiction',
-  'What am I missing?',
-  'Turn this into a plan',
-  'Suggest three clusters',
-];
-
+/** Side lane — same LangGraph canvas-ai controller as the forever dock. */
 export const CanvasAiPanel: React.FC<CanvasAiPanelProps> = ({
   isOpen,
   onClose,
   onOpen,
   board,
-  selectedNoteIds,
-  visibleNoteIds,
-  viewport,
-  onZoomToCard,
-  onBoardReplaced,
-  onProposalPreview,
-  autoZoomEnabled,
+  chat,
 }) => {
-  const [messages, setMessages] = useState<CanvasAiMessage[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      text: 'Select notes, then ask a grounded question. Citations focus the canvas. Propose clusters or new cards when you want reviewable edits.',
-    },
-  ]);
-  const [input, setInput] = useState('');
-  const [isRunning, setIsRunning] = useState(false);
-  const [models, setModels] = useState<ModelProfile[]>([]);
-  const [modelProfileId, setModelProfileId] = useState('gemini-flash');
-  const [taskPreset, setTaskPreset] = useState<'chat' | 'synthesis' | 'layout' | 'extraction'>(
-    'chat'
-  );
-  const [showSettings, setShowSettings] = useState(false);
-  const [threadId, setThreadId] = useState<string | undefined>();
-  const [activeProposal, setActiveProposal] = useState<ChangeProposal | null>(null);
-  const [lastError, setLastError] = useState<string | null>(null);
-  const [runState, setRunState] = useState<'idle' | 'running' | 'error'>('idle');
-
-  useEffect(() => {
-    fetchCanvasModels()
-      .then((res) => {
-        setModels(res.models);
-        if (res.defaultId) setModelProfileId(res.defaultId);
-      })
-      .catch(() => {
-        /* offline / no server */
-      });
-  }, []);
-
-  useEffect(() => {
-    onProposalPreview(activeProposal);
-  }, [activeProposal, onProposalPreview]);
-
-  const activeModelLabel = useMemo(() => {
-    return models.find((m) => m.id === modelProfileId)?.label || modelProfileId;
-  }, [models, modelProfileId]);
-
-  const buildContext = useCallback((): CanvasContext => {
-    return {
-      boardId: board.id,
-      selectedNoteIds,
-      visibleNoteIds,
-      viewport: {
-        x: viewport.x,
-        y: viewport.y,
-        zoom: viewport.zoom,
-      },
-      boardVersion: typeof board.version === 'number' ? board.version : 0,
-    };
-  }, [board, selectedNoteIds, visibleNoteIds, viewport]);
-
-  const handleCitationClick = useCallback(
-    (noteId: string) => {
-      onZoomToCard(noteId);
-    },
-    [onZoomToCard]
-  );
-
-  const appendAssistant = useCallback(
-    (result: {
-      answer?: CanvasAiAnswer;
-      proposal?: ChangeProposal;
-      modelProfileId: string;
-      latencyMs: number;
-      error?: string;
-      status: string;
-    }) => {
-      const text =
-        result.answer?.reply ||
-        result.proposal?.rationale ||
-        result.error ||
-        'No response.';
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `asst-${Date.now()}`,
-          role: 'assistant',
-          text,
-          citedNoteIds: result.answer?.citedNoteIds || result.proposal?.evidenceNoteIds,
-          focusNoteId: result.answer?.focusNoteId || result.proposal?.evidenceNoteIds?.[0],
-          proposal: result.proposal,
-          modelProfileId: result.modelProfileId,
-          latencyMs: result.latencyMs,
-          error: result.error,
-        },
-      ]);
-      if (result.proposal) setActiveProposal(result.proposal);
-      if (autoZoomEnabled && result.answer?.focusNoteId) {
-        onZoomToCard(result.answer.focusNoteId);
-      }
-    },
-    [autoZoomEnabled, onZoomToCard]
-  );
-
-  const handleRun = useCallback(
-    async (queryOverride?: string) => {
-      const query = (queryOverride ?? input).trim();
-      if (!query || isRunning) return;
-
-      setInput('');
-      setLastError(null);
-      setRunState('running');
-      setIsRunning(true);
-      setMessages((prev) => [
-        ...prev,
-        { id: `user-${Date.now()}`, role: 'user', text: query },
-      ]);
-
-      try {
-        await syncBoardToServer({
-          ...board,
-          version: typeof board.version === 'number' ? board.version : 0,
-        });
-
-        const result = await runCanvasAi({
-          query,
-          context: buildContext(),
-          threadId,
-          modelProfileId,
-          task: taskPreset,
-          board: {
-            ...board,
-            version: typeof board.version === 'number' ? board.version : 0,
-          },
-        });
-
-        setThreadId(result.threadId);
-        if (result.status === 'error') {
-          setRunState('error');
-          setLastError(result.error || 'Agent error');
-        } else {
-          setRunState('idle');
-        }
-        appendAssistant(result);
-      } catch (err: any) {
-        setRunState('error');
-        setLastError(err?.message || 'Run failed');
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `err-${Date.now()}`,
-            role: 'assistant',
-            text: err?.message || 'Run failed',
-            error: err?.message,
-          },
-        ]);
-      } finally {
-        setIsRunning(false);
-      }
-    },
-    [
-      appendAssistant,
-      board,
-      buildContext,
-      input,
-      isRunning,
-      modelProfileId,
-      taskPreset,
-      threadId,
-    ]
-  );
-
-  const handleApply = useCallback(async () => {
-    if (!activeProposal) return;
-    try {
-      const result = await applyCanvasProposal(activeProposal.proposalId);
-      if (result.board) {
-        onBoardReplaced({
-          ...result.board,
-          description: result.board.description || board.description,
-        });
-      }
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `sys-${Date.now()}`,
-          role: 'system',
-          text:
-            result.status === 'duplicate'
-              ? 'Proposal already applied (idempotent).'
-              : 'Proposal applied as one undoable operation.',
-        },
-      ]);
-      setActiveProposal(null);
-    } catch (err: any) {
-      const msg =
-        err?.code === 'STALE_VERSION' || err?.data?.code === 'STALE_VERSION'
-          ? 'Board changed since this proposal. Re-run to reconcile — refuse silent overwrite.'
-          : err?.message || 'Apply failed';
-      setLastError(msg);
-      setMessages((prev) => [
-        ...prev,
-        { id: `sys-${Date.now()}`, role: 'system', text: msg, error: msg },
-      ]);
-    }
-  }, [activeProposal, board.description, onBoardReplaced]);
-
-  const handleDiscard = useCallback(async () => {
-    if (!activeProposal) return;
-    try {
-      await discardCanvasProposal(activeProposal.proposalId);
-    } catch {
-      /* local discard still clears UI */
-    }
-    setActiveProposal(null);
-    setMessages((prev) => [
-      ...prev,
-      { id: `sys-${Date.now()}`, role: 'system', text: 'Proposal discarded. Board unchanged.' },
-    ]);
-  }, [activeProposal]);
-
-  const handleUndo = useCallback(async () => {
-    try {
-      const { board: restored } = await undoCanvasProposal(board.id);
-      if (restored) {
-        onBoardReplaced({
-          ...restored,
-          description: restored.description || board.description,
-        });
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `sys-${Date.now()}`,
-            role: 'system',
-            text: 'Undid last AI apply.',
-          },
-        ]);
-      }
-    } catch (err: any) {
-      setLastError(err?.message || 'Nothing to undo');
-    }
-  }, [board.description, board.id, onBoardReplaced]);
+  const {
+    messages,
+    input,
+    setInput,
+    isRunning,
+    models,
+    modelProfileId,
+    setModelProfileId,
+    taskPreset,
+    setTaskPreset,
+    showSettings,
+    setShowSettings,
+    activeProposal,
+    lastError,
+    runState,
+    activeModelLabel,
+    selectedNoteIds,
+    handleRun,
+    handleApply,
+    handleDiscard,
+    handleUndo,
+    handleCitationClick,
+  } = chat;
 
   if (!isOpen) {
     return (
       <button
         type="button"
         onClick={onOpen}
-        className="absolute right-0 top-1/2 -translate-y-1/2 z-30 flex items-center gap-1 pl-1.5 pr-2 py-3 rounded-l-md bg-orange-600 text-white text-[11px] font-semibold shadow-md hover:bg-orange-500"
-        title="Open canvas AI"
+        className="absolute right-0 top-1/2 -translate-y-1/2 z-30 flex items-center gap-1 pl-1.5 pr-2 py-3 rounded-l-md bg-orange-600/90 text-white text-[11px] font-semibold shadow-md hover:bg-orange-500"
+        title="Open canvas AI lane"
       >
         <Sparkles className="w-3.5 h-3.5" />
-        <span className="writing-mode-vertical hidden sm:inline">AI</span>
         <ChevronLeft className="w-3.5 h-3.5" />
       </button>
     );
@@ -331,7 +78,7 @@ export const CanvasAiPanel: React.FC<CanvasAiPanelProps> = ({
         <div className="flex items-center gap-2 min-w-0">
           <Sparkles className="w-4 h-4 text-orange-600 shrink-0" />
           <div className="min-w-0">
-            <div className="text-xs font-semibold truncate">Canvas AI</div>
+            <div className="text-xs font-semibold truncate">Canvas AI lane</div>
             <div className="text-[10px] text-zinc-500 truncate font-mono">
               {activeModelLabel}
               {runState === 'running' ? ' · running' : ''}
@@ -383,7 +130,7 @@ export const CanvasAiPanel: React.FC<CanvasAiPanelProps> = ({
             ]}
           />
           <p className="text-[10px] text-zinc-500">
-            Profiles are allowlisted server-side. Keys never leave the server.
+            Same allowlisted profiles as the forever dock. Keys stay server-side.
           </p>
         </div>
       )}
@@ -446,20 +193,6 @@ export const CanvasAiPanel: React.FC<CanvasAiPanelProps> = ({
           <p className="text-[11px] text-zinc-600 dark:text-zinc-300 line-clamp-3">
             {activeProposal.rationale}
           </p>
-          <ul className="text-[10px] font-mono text-zinc-500 space-y-0.5 max-h-20 overflow-auto">
-            {activeProposal.operations.map((op, i) => (
-              <li key={i}>
-                {op.type}
-                {op.type === 'create_note'
-                  ? `: ${op.title}`
-                  : op.type === 'create_group'
-                    ? `: ${op.title}`
-                    : op.type === 'connect_notes'
-                      ? `: ${op.sourceId.slice(0, 8)}→${op.targetId.slice(0, 8)}`
-                      : ''}
-              </li>
-            ))}
-          </ul>
           <div className="flex gap-1.5">
             <button
               type="button"
@@ -481,7 +214,7 @@ export const CanvasAiPanel: React.FC<CanvasAiPanelProps> = ({
 
       <div className="border-t border-zinc-200 dark:border-zinc-800 p-2 space-y-2">
         <div className="flex flex-wrap gap-1">
-          {QUICK_PROMPTS.map((p) => (
+          {CANVAS_AI_QUICK_PROMPTS.map((p) => (
             <button
               key={p}
               type="button"

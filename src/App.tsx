@@ -24,8 +24,10 @@ import { TopToolbar } from './components/TopToolbar';
 import { Sidebar } from './components/Sidebar';
 import { ChatPanel } from './components/ChatPanel';
 import { CanvasAiPanel } from './components/CanvasAiPanel';
+import { CanvasAiDock } from './components/CanvasAiDock';
 import { ProposalPreviewLayer } from './components/ProposalPreviewLayer';
 import type { ChangeProposal } from './ai/canvasTypes';
+import { useCanvasAiChat } from './ai/useCanvasAiChat';
 import { CardDetailModal } from './components/CardDetailModal';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { UploadModal } from './components/UploadModal';
@@ -529,6 +531,44 @@ export default function App() {
     [currentBoard.cards, isSidebarOpen, isChatOpen]
   );
 
+  const handleBoardReplacedByAi = useCallback(
+    (next: Whiteboard & { version?: number }) => {
+      setWhiteboards((prev) =>
+        prev.map((b) =>
+          b.id === next.id
+            ? {
+                ...b,
+                ...next,
+                description: next.description || b.description,
+                viewState: next.viewState || b.viewState,
+                version: next.version,
+                updatedAt: next.updatedAt || Date.now(),
+              }
+            : b
+        )
+      );
+    },
+    []
+  );
+
+  const canvasAiChat = useCanvasAiChat({
+    board: currentBoard,
+    selectedNoteIds: selectedCardId ? [selectedCardId] : [],
+    visibleNoteIds: currentBoard.cards
+      .filter((c) => c.type !== 'section')
+      .slice(0, 24)
+      .map((c) => c.id),
+    viewport: {
+      x: viewState.panX,
+      y: viewState.panY,
+      zoom: viewState.zoom,
+    },
+    onZoomToCard: handleZoomToCard,
+    onBoardReplaced: handleBoardReplacedByAi,
+    onProposalPreview: setAiProposal,
+    autoZoomEnabled,
+  });
+
   // Zoom controls
   const handleZoomIn = () => {
     setViewState((prev) => ({
@@ -1005,6 +1045,9 @@ export default function App() {
               </span>
             </div>
 
+            {/* Forever Canvas AI composer — fixed above latent/control bars */}
+            <CanvasAiDock board={currentBoard} chat={canvasAiChat} bottomOffsetPx={72} />
+
             {/* Latent Intelligence Floating Control Bar & Insights */}
             <LatentToolbar
               engineState={latentEngineState}
@@ -1037,42 +1080,14 @@ export default function App() {
             />
           </div>
 
-          {/* Right AI panel: Canvas AI (LangGraph) primary; legacy ChatPanel optional */}
+          {/* Right AI lane shares the forever-dock LangGraph controller */}
           {useCanvasAiPanel ? (
             <CanvasAiPanel
               isOpen={isChatOpen}
               onClose={() => setIsChatOpen(false)}
               onOpen={() => setIsChatOpen(true)}
               board={currentBoard}
-              selectedNoteIds={selectedCardId ? [selectedCardId] : []}
-              visibleNoteIds={currentBoard.cards
-                .filter((c) => c.type !== 'section')
-                .slice(0, 24)
-                .map((c) => c.id)}
-              viewport={{
-                x: viewState.panX,
-                y: viewState.panY,
-                zoom: viewState.zoom,
-              }}
-              onZoomToCard={handleZoomToCard}
-              onBoardReplaced={(next) => {
-                setWhiteboards((prev) =>
-                  prev.map((b) =>
-                    b.id === next.id
-                      ? {
-                          ...b,
-                          ...next,
-                          description: next.description || b.description,
-                          viewState: next.viewState || b.viewState,
-                          version: next.version,
-                          updatedAt: next.updatedAt || Date.now(),
-                        }
-                      : b
-                  )
-                );
-              }}
-              onProposalPreview={setAiProposal}
-              autoZoomEnabled={autoZoomEnabled}
+              chat={canvasAiChat}
             />
           ) : (
             <ChatPanel
