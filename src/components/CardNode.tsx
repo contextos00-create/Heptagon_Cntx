@@ -653,7 +653,7 @@ export const CardNode: React.FC<CardNodeProps> = ({
     if (card.type === 'map') {
       return (
         <div className="h-full flex flex-col justify-between">
-          <div className="flex-1 relative rounded overflow-hidden border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-[#1b1c22]">
+          <div className="flex-1 relative rounded overflow-hidden border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-[#1b1c22] map-embed-frame">
             <iframe
               title={card.title}
               width="100%"
@@ -665,10 +665,10 @@ export const CardNode: React.FC<CardNodeProps> = ({
               src={`https://maps.google.com/maps?q=${encodeURIComponent(
                 card.mapData?.locationName || card.title
               )}&t=&z=13&ie=UTF8&iwloc=&output=embed`}
-              className="w-full h-full contrast-105 pointer-events-none"
+              className="w-full h-full contrast-105 pointer-events-none map-embed-iframe"
             />
-            <div className="absolute top-1 left-1 bg-white/95 dark:bg-black/90 backdrop-blur-xs px-1.5 py-0.5 rounded text-[9px] font-mono text-zinc-900 dark:text-zinc-100 flex items-center gap-1 shadow-xs border border-zinc-300 dark:border-zinc-700">
-              <Navigation className="w-2 h-2 text-blue-600" />
+            <div className="absolute top-1 left-1 bg-[var(--card-bg-elevated)]/95 dark:bg-black/90 backdrop-blur-xs px-1.5 py-0.5 rounded text-[9px] font-mono text-zinc-900 dark:text-zinc-100 flex items-center gap-1 shadow-xs border border-zinc-300 dark:border-zinc-700">
+              <Navigation className="w-2 h-2 text-sky-500" />
               <span>{card.mapData?.locationName || card.title}</span>
             </div>
           </div>

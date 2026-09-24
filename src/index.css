@@ -201,6 +201,15 @@
   background-size: 24px 24px;
 }
 
+/* Darken embedded map tiles under dark / Hepta Dark */
+.dark .map-embed-iframe {
+  filter: invert(0.9) hue-rotate(180deg) brightness(0.95) contrast(0.92);
+  mixed-blend-mode: normal;
+}
+.dark.skin-hepta-dark .map-embed-iframe {
+  filter: invert(0.92) hue-rotate(180deg) brightness(0.88) contrast(0.95) saturate(0.85);
+}
+
 /* Hepta Dark: remaps orange chrome accents → cyan/sky (from Hepta_dark) */
 .dark.skin-hepta-dark .bg-orange-500 { background-color: #0ea5e9 !important; }
 .dark.skin-hepta-dark .bg-orange-600 { background-color: #0284c7 !important; }
