@@ -7,6 +7,8 @@ import { mantineThemeForMode } from './theme/mantineTheme';
 import { RouterProvider } from '@tanstack/react-router';
 import { router } from './router';
 import { ThemeMode, isDarkTheme } from './types/surface';
+import { CopilotKit } from '@copilotkit/react-core';
+import '@copilotkit/react-core/v2/styles.css';
 
 const THEME_KEY = 'heptasurface_theme_v2';
 
@@ -57,7 +59,13 @@ function Root() {
       theme={mantineTheme}
       forceColorScheme={isDarkTheme(theme) ? 'dark' : 'light'}
     >
-      <RouterProvider router={router} />
+      <CopilotKit
+        runtimeUrl="/api/copilotkit"
+        agentId="note-canvas"
+        useSingleEndpoint={true}
+      >
+        <RouterProvider router={router} />
+      </CopilotKit>
     </MantineProvider>
   );
 }

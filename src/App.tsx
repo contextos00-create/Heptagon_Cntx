@@ -23,6 +23,9 @@ import { SurfaceCanvas } from './components/SurfaceCanvas';
 import { TopToolbar } from './components/TopToolbar';
 import { Sidebar } from './components/Sidebar';
 import { ChatPanel } from './components/ChatPanel';
+import { CanvasAiPanel } from './components/CanvasAiPanel';
+import { ProposalPreviewLayer } from './components/ProposalPreviewLayer';
+import type { ChangeProposal } from './ai/canvasTypes';
 import { CardDetailModal } from './components/CardDetailModal';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { UploadModal } from './components/UploadModal';
@@ -120,7 +123,9 @@ export default function App() {
   // Panels visibility (with protruding orange tabs when closed)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const useCanvasAiPanel = true;
   const [autoZoomEnabled, setAutoZoomEnabled] = useState(true);
+  const [aiProposal, setAiProposal] = useState<ChangeProposal | null>(null);
 
   // Modals & Overlays
   const [detailCard, setDetailCard] = useState<SurfaceCard | null>(null);
@@ -969,6 +974,13 @@ export default function App() {
               territories={spatialAnalysis.territories}
               edgeRoutingMode={edgeRoutingMode}
               onPredictiveAction={handlePredictiveAction}
+              proposalPreview={
+                <ProposalPreviewLayer
+                  proposal={aiProposal}
+                  cards={currentBoard.cards}
+                  zoom={viewState.zoom}
+                />
+              }
             />
 
             {/* Mobile Adaptive Zone Carousel & Stack Controller (Guarantees zero whitespace on phones) */}
@@ -1025,16 +1037,54 @@ export default function App() {
             />
           </div>
 
-          {/* Right AI Copilot & Chat Panel (With Protruding Orange Tab When Hidden) */}
-          <ChatPanel
-            isOpen={isChatOpen}
-            onClose={() => setIsChatOpen(false)}
-            onOpen={() => setIsChatOpen(true)}
-            cards={currentBoard.cards}
-            onZoomToCard={handleZoomToCard}
-            autoZoomEnabled={autoZoomEnabled}
-            onToggleAutoZoom={() => setAutoZoomEnabled(!autoZoomEnabled)}
-          />
+          {/* Right AI panel: Canvas AI (LangGraph) primary; legacy ChatPanel optional */}
+          {useCanvasAiPanel ? (
+            <CanvasAiPanel
+              isOpen={isChatOpen}
+              onClose={() => setIsChatOpen(false)}
+              onOpen={() => setIsChatOpen(true)}
+              board={currentBoard}
+              selectedNoteIds={selectedCardId ? [selectedCardId] : []}
+              visibleNoteIds={currentBoard.cards
+                .filter((c) => c.type !== 'section')
+                .slice(0, 24)
+                .map((c) => c.id)}
+              viewport={{
+                x: viewState.panX,
+                y: viewState.panY,
+                zoom: viewState.zoom,
+              }}
+              onZoomToCard={handleZoomToCard}
+              onBoardReplaced={(next) => {
+                setWhiteboards((prev) =>
+                  prev.map((b) =>
+                    b.id === next.id
+                      ? {
+                          ...b,
+                          ...next,
+                          description: next.description || b.description,
+                          viewState: next.viewState || b.viewState,
+                          version: next.version,
+                          updatedAt: next.updatedAt || Date.now(),
+                        }
+                      : b
+                  )
+                );
+              }}
+              onProposalPreview={setAiProposal}
+              autoZoomEnabled={autoZoomEnabled}
+            />
+          ) : (
+            <ChatPanel
+              isOpen={isChatOpen}
+              onClose={() => setIsChatOpen(false)}
+              onOpen={() => setIsChatOpen(true)}
+              cards={currentBoard.cards}
+              onZoomToCard={handleZoomToCard}
+              autoZoomEnabled={autoZoomEnabled}
+              onToggleAutoZoom={() => setAutoZoomEnabled(!autoZoomEnabled)}
+            />
+          )}
         </div>
       </main>
 

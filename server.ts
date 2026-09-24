@@ -4,8 +4,19 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import { GoogleGenAI } from '@google/genai';
+import { CopilotRuntime, BuiltInAgent } from '@copilotkit/runtime/v2';
+import { createCopilotEndpointSingleRouteExpress } from '@copilotkit/runtime/v2/express';
+import { boardCommandStore, resolveContextNotes } from './src/ai/boardCommandStore';
+import { listEnabledModels, resolveModelProfile, toCopilotKitModelId } from './src/ai/modelRegistry';
+import { runNoteCanvasAgent } from './src/ai/langgraph/noteCanvasAgent';
+import type { CanvasContext } from './src/ai/canvasTypes';
 
 dotenv.config();
+
+// CopilotKit BuiltInAgent reads GOOGLE_API_KEY; alias Gemini Studio secret.
+if (process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY) {
+  process.env.GOOGLE_API_KEY = process.env.GEMINI_API_KEY;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -317,8 +328,169 @@ app.get('/api/boards/:id', (req, res) => {
 
 app.put('/api/boards/:id', (req, res) => {
   boardsStore[req.params.id] = req.body;
-  res.json({ success: true, updatedAt: Date.now() });
+  try {
+    const snap = boardCommandStore.upsertBoard({
+      ...req.body,
+      version:
+        typeof req.body?.version === 'number'
+          ? req.body.version
+          : boardCommandStore.getBoard(req.params.id)?.version || 0,
+    });
+    return res.json({ success: true, updatedAt: snap.updatedAt, version: snap.version });
+  } catch {
+    return res.json({ success: true, updatedAt: Date.now() });
+  }
 });
+
+// ---------------------------------------------------------------------------
+// Canvas AI: model registry, LangGraph agent, proposal apply/undo
+// ---------------------------------------------------------------------------
+
+app.get('/api/canvas-ai/models', (_req, res) => {
+  const models = listEnabledModels();
+  const fallback = resolveModelProfile(undefined, 'chat');
+  res.json({ models, defaultId: fallback.id });
+});
+
+app.post('/api/canvas-ai/context', (req, res) => {
+  try {
+    const { context, query, board } = req.body || {};
+    if (!context?.boardId) {
+      return res.status(400).json({ error: 'context.boardId is required' });
+    }
+    if (board) boardCommandStore.upsertBoard(board);
+    else if (boardsStore[context.boardId]) {
+      boardCommandStore.upsertBoard(boardsStore[context.boardId]);
+    }
+    const notes = resolveContextNotes(boardCommandStore, context as CanvasContext, query);
+    const live = boardCommandStore.getBoard(context.boardId);
+    res.json({ notes, boardVersion: live?.version || context.boardVersion || 0 });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/canvas-ai/search', (req, res) => {
+  try {
+    const { boardId, query = '', limit = 12, board } = req.body || {};
+    if (!boardId) return res.status(400).json({ error: 'boardId is required' });
+    if (board) boardCommandStore.upsertBoard(board);
+    else if (boardsStore[boardId]) boardCommandStore.upsertBoard(boardsStore[boardId]);
+    const notes = boardCommandStore.searchNotes(boardId, query, limit);
+    res.json({ notes });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/canvas-ai/run', async (req, res) => {
+  try {
+    const {
+      query,
+      context,
+      threadId,
+      modelProfileId,
+      task = 'chat',
+      board,
+    } = req.body || {};
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ error: 'query is required' });
+    }
+    if (!context?.boardId) {
+      return res.status(400).json({ error: 'context.boardId is required' });
+    }
+    if (board) {
+      boardCommandStore.upsertBoard(board);
+      boardsStore[board.id] = board;
+    } else if (boardsStore[context.boardId]) {
+      boardCommandStore.upsertBoard(boardsStore[context.boardId]);
+    }
+
+    const result = await runNoteCanvasAgent({
+      query,
+      context: context as CanvasContext,
+      threadId,
+      modelProfileId,
+      task,
+    });
+    res.json(result);
+  } catch (err: any) {
+    console.error('canvas-ai/run error:', err);
+    res.status(500).json({ error: err.message || 'Agent run failed' });
+  }
+});
+
+app.post('/api/canvas-ai/proposals/:id/apply', (req, res) => {
+  try {
+    const result = boardCommandStore.applyProposal(req.params.id);
+    boardsStore[result.board.id] = result.board;
+    res.json(result);
+  } catch (err: any) {
+    const status = err.code === 'STALE_VERSION' ? 409 : 400;
+    res.status(status).json({
+      error: err.message,
+      code: err.code,
+      currentVersion: err.currentVersion,
+      baseBoardVersion: err.baseBoardVersion,
+    });
+  }
+});
+
+app.post('/api/canvas-ai/proposals/:id/discard', (req, res) => {
+  try {
+    const proposal = boardCommandStore.discardProposal(req.params.id);
+    if (!proposal) return res.status(404).json({ error: 'Proposal not found' });
+    res.json({ proposal });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/canvas-ai/undo', (req, res) => {
+  try {
+    const { boardId } = req.body || {};
+    if (!boardId) return res.status(400).json({ error: 'boardId is required' });
+    const board = boardCommandStore.undoLast(boardId);
+    if (board) boardsStore[boardId] = board;
+    res.json({ board });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// CopilotKit v2 single-route runtime (BuiltInAgent bridge; LangGraph owns canvas runs)
+try {
+  const googleKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+  if (googleKey && !process.env.GOOGLE_API_KEY) {
+    process.env.GOOGLE_API_KEY = googleKey;
+  }
+  const defaultProfile = resolveModelProfile('gemini-flash', 'chat');
+  const copilotRuntime = new CopilotRuntime({
+    agents: {
+      'note-canvas': new BuiltInAgent({
+        model: toCopilotKitModelId(defaultProfile) as any,
+        apiKey: googleKey || undefined,
+        temperature: 0.2,
+        prompt: `You are the Heptasurface canvas AI bridge. Prefer the /api/canvas-ai/run LangGraph endpoint for grounded board answers and proposals. Do not invent canvas coordinates. Never expose API keys.`,
+      }),
+      default: new BuiltInAgent({
+        model: toCopilotKitModelId(defaultProfile) as any,
+        apiKey: googleKey || undefined,
+        temperature: 0.2,
+        prompt: `You are the Heptasurface assistant. Ground answers in board notes when context is provided.`,
+      }),
+    },
+  });
+  app.use(
+    createCopilotEndpointSingleRouteExpress({
+      runtime: copilotRuntime,
+      basePath: '/api/copilotkit',
+    })
+  );
+  console.log('CopilotKit runtime mounted at /api/copilotkit (agent: note-canvas)');
+} catch (err) {
+  console.warn('CopilotKit runtime not mounted:', err);
+}
 
 // TanStack AI endpoint compatible with @tanstack/ai
 app.post('/api/ai/chat', async (req, res) => {

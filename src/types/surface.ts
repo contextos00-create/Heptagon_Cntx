@@ -159,6 +159,8 @@ export interface Whiteboard {
     panY: number;
     zoom: number;
   };
+  /** Monotonic version used by canvas AI apply / conflict checks */
+  version?: number;
   createdAt: number;
   updatedAt: number;
 }

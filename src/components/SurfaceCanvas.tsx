@@ -44,6 +44,7 @@ interface SurfaceCanvasProps {
   territories?: LatentTerritory[];
   edgeRoutingMode?: EdgeRoutingMode;
   onPredictiveAction?: (action: 'compare' | 'find_relations' | 'trace_evidence' | 'find_contradictions' | 'timeline', card: SurfaceCard) => void;
+  proposalPreview?: React.ReactNode;
 }
 
 export const SurfaceCanvas: React.FC<SurfaceCanvasProps> = ({
@@ -69,6 +70,7 @@ export const SurfaceCanvas: React.FC<SurfaceCanvasProps> = ({
   territories = [],
   edgeRoutingMode = 'orthogonal-avoid',
   onPredictiveAction,
+  proposalPreview,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { panX, panY, zoom } = viewState;
@@ -892,6 +894,9 @@ export const SurfaceCanvas: React.FC<SurfaceCanvasProps> = ({
             />
           </div>
         ))}
+
+        {/* AI proposal preview (ephemeral — not canonical board state) */}
+        {proposalPreview}
 
         {/* Regular Canvas Cards */}
         {cards.map((card) => (
