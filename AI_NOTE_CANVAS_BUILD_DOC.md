@@ -4,7 +4,7 @@ This repository implements the AI Note Canvas architecture described in the prod
 
 - **Canonical board state** — notes/edges/groups/positions/versions/history via board command API
 - **Agent state** — LangGraph checkpointed conversation + proposals (user+board+thread)
-- **Ephemeral UI context** — selection/viewport published through CopilotKit / canvas adapter
+- **Ephemeral UI context** — selection/viewport published through canvas adapter / server fns
 
 See `AI_INTEGRATION_INVENTORY.md` for the mapped systems. Prefer extending existing React canvas + Express Gemini stack over replacing them.
 
@@ -17,21 +17,32 @@ See `AI_INTEGRATION_INVENTORY.md` for the mapped systems. Prefer extending exist
 | C — Proposal system (preview/review/apply/undo) | Done |
 | D — Model registry polish + presets | Done (single-provider; more providers when keys exist) |
 
-## Runtime endpoints
+## Server functions (TanStack Start–friendly)
 
-- `POST /api/copilotkit` — CopilotKit v2 single-route runtime (`agentId: note-canvas`)
-- `GET/PUT /api/boards/:id` — board sync (also upserts command-store version)
-- `POST /api/canvas-ai/context` — resolve notes for a canvas context
-- `POST /api/canvas-ai/search` — board-scoped note search
-- `POST /api/canvas-ai/run` — LangGraph agent run (answer and/or proposal)
-- `POST /api/canvas-ai/proposals/:id/apply` — atomic apply (idempotent by proposalId)
-- `POST /api/canvas-ai/proposals/:id/discard` — discard
-- `POST /api/canvas-ai/undo` — undo last applied proposal
-- `GET /api/canvas-ai/models` — allowlisted model profiles
+UI calls typed server functions — no hand-rolled `/api/canvas-ai/*` REST clients.
+
+| Function | Purpose |
+|---|---|
+| `listCanvasModelsFn` | Allowlisted model profiles |
+| `syncBoardFn` / `saveBoardFn` | Upsert board into command store |
+| `resolveCanvasNotesFn` | Resolve notes for canvas context |
+| `searchCanvasNotesFn` | Board-scoped note search |
+| `runCanvasAiFn` | LangGraph agent run |
+| `applyCanvasProposalFn` | Atomic apply |
+| `discardCanvasProposalFn` | Discard |
+| `undoCanvasProposalFn` | Undo last apply |
+
+Handlers are registered in `src/server/registerServerFns.ts` and invoked in-process on the server. The browser uses a single Start-style transport: `POST /_server/fn`.
+
+Optional: `POST /api/copilotkit` — CopilotKit v2 bridge (`agentId: note-canvas`).
 
 ## Vertical slice
 
-Select a note → ask in Canvas AI panel → server retrieves note text → streams grounded answer → citation badge focuses the card. Propose clusters/cards → ghost preview → Apply / Discard / Undo.
+Select a note → ask in the forever dock → `runCanvasAiFn` retrieves note text → grounded answer → citation chips focus cards. Propose → ghost preview → Apply / Discard / Undo.
+
+## Forever dock
+
+Viewport-fixed composer above latent/control bars. Framed solid shell. Dialogue panel spring-slides up; folds 5s after click-away. No quick-prompt suggestion chips — only model dialogue.
 
 ## Infrastructure notes
 

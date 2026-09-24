@@ -1,107 +1,33 @@
-import type {
-  CanvasAiRunResult,
-  CanvasContext,
-  ChangeProposal,
-  ModelProfile,
-} from './canvasTypes';
+/**
+ * Canvas AI client surface — TanStack Start–style server functions.
+ * UI imports these; no hand-rolled REST clients.
+ */
+export {
+  listCanvasModelsFn as fetchCanvasModels,
+  syncBoardFn as syncBoardToServer,
+  resolveCanvasNotesFn as resolveCanvasNotes,
+  searchCanvasNotesFn as searchCanvasNotes,
+  runCanvasAiFn as runCanvasAi,
+  type CompactNote,
+} from '../server/canvasAiFns';
 
-export type CompactNote = {
-  id: string;
-  type: string;
-  title: string;
-  content: string;
-  tags: string[];
-  sectionId?: string;
-  updatedAt?: number;
-  version?: number;
-};
-
-async function parseJson<T>(res: Response): Promise<T> {
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err = (data as any)?.error || res.statusText || 'Request failed';
-    throw Object.assign(new Error(err), { code: (data as any)?.code, data });
-  }
-  return data as T;
-}
-
-export async function syncBoardToServer(board: any) {
-  const res = await fetch(`/api/boards/${encodeURIComponent(board.id)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(board),
-  });
-  return parseJson<{ success: boolean; version?: number }>(res);
-}
-
-export async function fetchCanvasModels() {
-  const res = await fetch('/api/canvas-ai/models');
-  return parseJson<{ models: ModelProfile[]; defaultId: string }>(res);
-}
-
-export async function resolveCanvasNotes(context: CanvasContext, query?: string) {
-  const res = await fetch('/api/canvas-ai/context', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ context, query }),
-  });
-  return parseJson<{ notes: CompactNote[]; boardVersion: number }>(res);
-}
-
-export async function searchCanvasNotes(boardId: string, query: string, limit?: number) {
-  const res = await fetch('/api/canvas-ai/search', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ boardId, query, limit }),
-  });
-  return parseJson<{ notes: CompactNote[] }>(res);
-}
-
-export async function runCanvasAi(input: {
-  query: string;
-  context: CanvasContext;
-  threadId?: string;
-  modelProfileId?: string;
-  task?: 'chat' | 'synthesis' | 'layout' | 'extraction';
-  board?: any;
-}) {
-  const res = await fetch('/api/canvas-ai/run', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  return parseJson<CanvasAiRunResult>(res);
-}
+import {
+  applyCanvasProposalFn,
+  discardCanvasProposalFn,
+  undoCanvasProposalFn,
+} from '../server/canvasAiFns';
+import type { ChangeProposal } from './canvasTypes';
 
 export async function applyCanvasProposal(proposalId: string) {
-  const res = await fetch(`/api/canvas-ai/proposals/${encodeURIComponent(proposalId)}/apply`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  });
-  return parseJson<{
-    board: any;
-    createdIds: Record<string, string>;
-    status: 'applied' | 'duplicate' | 'stale';
-  }>(res);
+  return applyCanvasProposalFn({ proposalId });
 }
 
 export async function discardCanvasProposal(proposalId: string) {
-  const res = await fetch(`/api/canvas-ai/proposals/${encodeURIComponent(proposalId)}/discard`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  });
-  return parseJson<{ proposal: ChangeProposal & { status: string } }>(res);
+  return discardCanvasProposalFn({ proposalId });
 }
 
 export async function undoCanvasProposal(boardId: string) {
-  const res = await fetch('/api/canvas-ai/undo', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ boardId }),
-  });
-  return parseJson<{ board: any | null }>(res);
+  return undoCanvasProposalFn({ boardId });
 }
 
 /** Map a proposal into ephemeral ghost cards/edges for preview (never canonical). */

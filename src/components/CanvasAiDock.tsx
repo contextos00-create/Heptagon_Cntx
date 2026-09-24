@@ -126,10 +126,11 @@ export const CanvasAiDock: React.FC<CanvasAiDockProps> = ({
     scheduleFold();
   }, [isRunning, activeProposal, expanded]);
 
-  const expandAndStay = () => {
+  /** Only surface the dialogue panel when there is conversation — not empty chrome. */
+  const openDialogue = () => {
     awayRef.current = false;
     clearFoldTimer();
-    setExpanded(true);
+    if (messages.length > 0 || isRunning) setExpanded(true);
   };
 
   return (
@@ -141,7 +142,7 @@ export const CanvasAiDock: React.FC<CanvasAiDockProps> = ({
       <div
         ref={rootRef}
         className="pointer-events-auto w-full max-w-[640px] flex flex-col gap-1.5"
-        onFocusCapture={expandAndStay}
+        onFocusCapture={openDialogue}
         onPointerDownCapture={clearFoldTimer}
       >
         <AnimatePresence initial={false}>
@@ -342,7 +343,7 @@ export const CanvasAiDock: React.FC<CanvasAiDockProps> = ({
                   handleRun();
                 }
               }}
-              onFocus={expandAndStay}
+              onFocus={openDialogue}
             />
             <button
               type="submit"

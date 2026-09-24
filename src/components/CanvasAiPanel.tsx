@@ -13,10 +13,7 @@ import {
 } from 'lucide-react';
 import { Badge, Select, Tooltip, ActionIcon, ScrollArea } from '@mantine/core';
 import type { SurfaceCard, Whiteboard } from '../types/surface';
-import {
-  CANVAS_AI_QUICK_PROMPTS,
-  type CanvasAiChatController,
-} from '../ai/useCanvasAiChat';
+import type { CanvasAiChatController } from '../ai/useCanvasAiChat';
 
 interface CanvasAiPanelProps {
   isOpen: boolean;
@@ -212,20 +209,7 @@ export const CanvasAiPanel: React.FC<CanvasAiPanelProps> = ({
         </div>
       )}
 
-      <div className="border-t border-zinc-200 dark:border-zinc-800 p-2 space-y-2">
-        <div className="flex flex-wrap gap-1">
-          {CANVAS_AI_QUICK_PROMPTS.map((p) => (
-            <button
-              key={p}
-              type="button"
-              disabled={isRunning}
-              onClick={() => handleRun(p)}
-              className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-200 dark:border-zinc-700 hover:border-orange-500 text-zinc-600 dark:text-zinc-300"
-            >
-              {p}
-            </button>
-          ))}
-        </div>
+      <div className="border-t border-zinc-200 dark:border-zinc-800 p-2">
         <form
           className="flex items-end gap-1.5"
           onSubmit={(e) => {

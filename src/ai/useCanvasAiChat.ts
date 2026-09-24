@@ -27,14 +27,6 @@ export type CanvasAiMessage = {
   error?: string;
 };
 
-export const CANVAS_AI_QUICK_PROMPTS = [
-  'Summarize these',
-  'Find the contradiction',
-  'What am I missing?',
-  'Turn this into a plan',
-  'Suggest three clusters',
-] as const;
-
 export type CanvasAiTaskPreset = 'chat' | 'synthesis' | 'layout' | 'extraction';
 
 export type UseCanvasAiChatArgs = {
@@ -58,13 +50,7 @@ export function useCanvasAiChat({
   onProposalPreview,
   autoZoomEnabled,
 }: UseCanvasAiChatArgs) {
-  const [messages, setMessages] = useState<CanvasAiMessage[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      text: 'Ask anything about this board. Select notes for tighter grounding. Citations focus the canvas; proposals stay preview-only until you Apply.',
-    },
-  ]);
+  const [messages, setMessages] = useState<CanvasAiMessage[]>([]);
   const [input, setInput] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [models, setModels] = useState<ModelProfile[]>([]);
