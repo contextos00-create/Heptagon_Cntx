@@ -373,18 +373,43 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
           {/* Quick Prompts Suggestions */}
           <div className="px-2 py-1.5 border-t border-black/[0.04] dark:border-white/[0.04] flex items-center gap-1 overflow-x-auto text-[10px]">
-            <button
-              onClick={() => handleSendMessage('Identify any contradictions between SLI claims and telemetry data')}
-              className="px-2 py-1 rounded bg-black/[0.03] dark:bg-white/[0.04] hover:bg-orange-500/10 hover:text-orange-500 text-zinc-600 dark:text-zinc-400 whitespace-nowrap transition-colors"
-            >
-              ⚡ Find contradictions
-            </button>
-            <button
-              onClick={() => handleSendMessage('Analyze cache architecture and Singapore edge node')}
-              className="px-2 py-1 rounded bg-black/[0.03] dark:bg-white/[0.04] hover:bg-orange-500/10 hover:text-orange-500 text-zinc-600 dark:text-zinc-400 whitespace-nowrap transition-colors"
-            >
-              🔍 Inspect edge cache
-            </button>
+            {cards.some((c) => c.tags?.includes('GOOGLE')) ? (
+              <>
+                <button
+                  onClick={() => handleSendMessage('Summarize the main themes across my imported Google notes')}
+                  className="px-2 py-1 rounded bg-black/[0.03] dark:bg-white/[0.04] hover:bg-orange-500/10 hover:text-orange-500 text-zinc-600 dark:text-zinc-400 whitespace-nowrap transition-colors"
+                >
+                  Summarize Google notes
+                </button>
+                <button
+                  onClick={() => handleSendMessage('What connections and open decisions emerge from my Google notes?')}
+                  className="px-2 py-1 rounded bg-black/[0.03] dark:bg-white/[0.04] hover:bg-orange-500/10 hover:text-orange-500 text-zinc-600 dark:text-zinc-400 whitespace-nowrap transition-colors"
+                >
+                  Find connections
+                </button>
+                <button
+                  onClick={() => handleSendMessage('Are there contradictions between any of my Google notes?')}
+                  className="px-2 py-1 rounded bg-black/[0.03] dark:bg-white/[0.04] hover:bg-orange-500/10 hover:text-orange-500 text-zinc-600 dark:text-zinc-400 whitespace-nowrap transition-colors"
+                >
+                  Spot contradictions
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => handleSendMessage('Identify any contradictions between SLI claims and telemetry data')}
+                  className="px-2 py-1 rounded bg-black/[0.03] dark:bg-white/[0.04] hover:bg-orange-500/10 hover:text-orange-500 text-zinc-600 dark:text-zinc-400 whitespace-nowrap transition-colors"
+                >
+                  Find contradictions
+                </button>
+                <button
+                  onClick={() => handleSendMessage('Analyze cache architecture and Singapore edge node')}
+                  className="px-2 py-1 rounded bg-black/[0.03] dark:bg-white/[0.04] hover:bg-orange-500/10 hover:text-orange-500 text-zinc-600 dark:text-zinc-400 whitespace-nowrap transition-colors"
+                >
+                  Inspect edge cache
+                </button>
+              </>
+            )}
           </div>
 
           {/* Input Form */}

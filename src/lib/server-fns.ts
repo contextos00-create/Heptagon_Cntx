@@ -1,56 +1,43 @@
 /**
- * TanStack Start Server Functions Simulation & Type-Safe RPC
- * Compatible with TanStack Start's `createServerFn` architecture
+ * TanStack Start–friendly board server functions.
+ * Prefer these over raw fetch — handlers live in `registerServerFns.ts`.
  */
-import { Whiteboard, SurfaceCard, Connection } from '../types/surface';
+import { saveBoardFn, listBoardsFn, getBoardFn } from '../server/canvasAiFns';
+import type { Whiteboard, SurfaceCard, Connection } from '../types/surface';
 
 export interface ServerFnContext {
   headers?: Record<string, string>;
   signal?: AbortSignal;
 }
 
-/**
- * Server function: Fetch whiteboards from server storage
- */
-export async function getWhiteboardsServerFn(ctx?: ServerFnContext): Promise<Whiteboard[]> {
+export async function getWhiteboardsServerFn(_ctx?: ServerFnContext): Promise<Whiteboard[]> {
   try {
-    const res = await fetch('/api/boards', {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json', ...(ctx?.headers || {}) },
-      signal: ctx?.signal,
-    });
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
-  } catch (err) {
-    // Graceful fallback to client local state if offline or initial load
+    return (await listBoardsFn()) as Whiteboard[];
+  } catch {
     return [];
   }
 }
 
-/**
- * Server function: Persist whiteboard modifications back to server
- */
 export async function saveWhiteboardServerFn(
   board: Whiteboard,
-  ctx?: ServerFnContext
+  _ctx?: ServerFnContext
 ): Promise<{ success: boolean; updatedAt: number }> {
   try {
-    const res = await fetch(`/api/boards/${board.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...(ctx?.headers || {}) },
-      body: JSON.stringify(board),
-      signal: ctx?.signal,
-    });
-    if (!res.ok) throw new Error(`Failed to save board ${board.id}`);
-    return await res.json();
-  } catch (err) {
+    return await saveBoardFn(board as any);
+  } catch {
     return { success: true, updatedAt: Date.now() };
   }
 }
 
-/**
- * Server function: TanStack AI reasoning pipeline for visual surfaces
- */
+export async function getWhiteboardServerFn(id: string): Promise<Whiteboard | null> {
+  try {
+    return (await getBoardFn({ id })) as Whiteboard;
+  } catch {
+    return null;
+  }
+}
+
+/** @deprecated Prefer canvas AI server fns (`runCanvasAiFn`) for grounded answers. */
 export async function runSurfaceAiAnalysisServerFn(payload: {
   query: string;
   cards: SurfaceCard[];
@@ -64,19 +51,27 @@ export async function runSurfaceAiAnalysisServerFn(payload: {
     payload: any;
   };
 }> {
-  const res = await fetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message: payload.query,
+  const { runCanvasAiFn } = await import('../server/canvasAiFns');
+  const result = await runCanvasAiFn({
+    query: payload.query,
+    context: {
+      boardId: 'ephemeral',
+      selectedNoteIds: [],
+      visibleNoteIds: payload.cards.map((c) => c.id).slice(0, 24),
+      viewport: { x: 0, y: 0, zoom: 1 },
+      boardVersion: 0,
+    },
+    board: {
+      id: 'ephemeral',
+      name: 'Ephemeral',
+      version: 0,
       cards: payload.cards,
       connections: payload.connections,
-    }),
+    },
   });
-
-  if (!res.ok) {
-    throw new Error('AI analysis service error');
-  }
-
-  return await res.json();
+  return {
+    reply: result.answer?.reply || result.error || '',
+    focusCardId: result.answer?.focusNoteId,
+    referencedCardIds: result.answer?.citedNoteIds || [],
+  };
 }

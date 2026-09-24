@@ -159,6 +159,8 @@ export interface Whiteboard {
     panY: number;
     zoom: number;
   };
+  /** Monotonic version used by canvas AI apply / conflict checks */
+  version?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -180,7 +182,24 @@ export interface ChatMessage {
   focusCardId?: string;
 }
 
-export type ThemeMode = 'dark' | 'light';
+export type ThemeMode = 'dark' | 'light' | 'hepta-dark';
+
+/** Cycle: light → dark → hepta-dark → light */
+export function nextThemeMode(current: ThemeMode): ThemeMode {
+  if (current === 'light') return 'dark';
+  if (current === 'dark') return 'hepta-dark';
+  return 'light';
+}
+
+export function themeModeLabel(mode: ThemeMode): string {
+  if (mode === 'hepta-dark') return 'Hepta Dark';
+  if (mode === 'dark') return 'Dark';
+  return 'Light';
+}
+
+export function isDarkTheme(mode: ThemeMode): boolean {
+  return mode === 'dark' || mode === 'hepta-dark';
+}
 
 export type GraphLayoutAlgorithm = 
   | 'force-directed'

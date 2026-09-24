@@ -350,7 +350,7 @@ export const CompactDataGrid: React.FC<CompactDataGridProps> = ({
 
         <div className="flex items-center gap-1 shrink-0">
           {showSearch ? (
-            <div className="flex items-center gap-1 bg-white dark:bg-zinc-800 px-1 py-0.5 rounded border border-zinc-300 dark:border-zinc-700">
+            <div className="flex items-center gap-1 bg-[var(--card-bg)] dark:bg-zinc-800 px-1 py-0.5 rounded border border-zinc-300 dark:border-zinc-700">
               <Search className="w-2.5 h-2.5 text-zinc-400" />
               <input
                 type="text"
@@ -410,7 +410,7 @@ export const CompactDataGrid: React.FC<CompactDataGridProps> = ({
       </div>
 
       {/* Grid container with sticky headers and compact scrolling */}
-      <div className="flex-1 overflow-auto bg-white dark:bg-[#121316]">
+      <div className="flex-1 overflow-auto bg-[var(--card-bg)]">
         <table className="w-full border-collapse text-left text-[10px]">
           <thead className="sticky top-0 bg-zinc-100/95 dark:bg-zinc-900/95 backdrop-blur-xs z-10 border-b border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 font-mono">
             <tr>
@@ -498,7 +498,7 @@ export const CompactDataGrid: React.FC<CompactDataGridProps> = ({
                               }}
                               onBlur={commitEdit}
                               autoFocus
-                              className="w-full bg-white dark:bg-zinc-800 border border-orange-500 rounded px-1 py-0 text-[10px] text-zinc-900 dark:text-zinc-100 outline-none font-mono"
+                              className="w-full bg-[var(--card-bg)] dark:bg-zinc-800 border border-orange-500 rounded px-1 py-0 text-[10px] text-zinc-900 dark:text-zinc-100 outline-none font-mono"
                             />
                           </div>
                         ) : (

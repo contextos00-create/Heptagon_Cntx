@@ -7,7 +7,8 @@ import {
   ThemeMode,
   GraphLayoutAlgorithm,
   EdgeRoutingMode,
-  LayoutTightness
+  LayoutTightness,
+  nextThemeMode,
 } from './types/surface';
 import { 
   LatentEngineState, 
@@ -22,9 +23,15 @@ import { SurfaceCanvas } from './components/SurfaceCanvas';
 import { TopToolbar } from './components/TopToolbar';
 import { Sidebar } from './components/Sidebar';
 import { ChatPanel } from './components/ChatPanel';
+import { CanvasAiPanel } from './components/CanvasAiPanel';
+import { CanvasAiDock } from './components/CanvasAiDock';
+import { ProposalPreviewLayer } from './components/ProposalPreviewLayer';
+import type { ChangeProposal } from './ai/canvasTypes';
+import { useCanvasAiChat } from './ai/useCanvasAiChat';
 import { CardDetailModal } from './components/CardDetailModal';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { UploadModal } from './components/UploadModal';
+import { GoogleImportModal, GoogleImportCommitPayload } from './components/GoogleImportModal';
 import { LatentToolbar } from './components/LatentToolbar';
 import { ComputationalViewOverlay } from './components/ComputationalViewOverlay';
 import { GraphNativeSearch } from './components/GraphNativeSearch';
@@ -32,6 +39,7 @@ import { WorkspaceDataGridModal } from './components/WorkspaceDataGridModal';
 import { MobileSectionNav } from './components/MobileSectionNav';
 import { processFileToCard } from './utils/fileHelpers';
 import { groupAndPositionUploadedCards } from './utils/cardIntelligence';
+import { placeOrganizedNotesOnCanvas } from './utils/googleNotesOrganizer';
 import { createDataGridCard, generateScaleStressTestNodes } from './utils/scaleGenerator';
 import { saveWhiteboardServerFn } from './lib/server-fns';
 import { 
@@ -45,27 +53,34 @@ import {
 import { applyGraphLayout } from './utils/graphLayoutEngine';
 
 const STORAGE_KEY = 'heptasurface_data_v4_scale_datagrid';
-const THEME_KEY = 'heptasurface_theme_v1';
+const THEME_KEY = 'heptasurface_theme_v2';
 
 export default function App() {
-  // Theme state: dark / light
+  // Theme state: light / dark / hepta-dark (optional blueprint skin from Hepta_dark)
   const [theme, setTheme] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(THEME_KEY);
-    if (saved === 'dark' || saved === 'light') return saved;
+    if (saved === 'dark' || saved === 'light' || saved === 'hepta-dark') return saved;
+    // migrate v1 key
+    const legacy = localStorage.getItem('heptasurface_theme_v1');
+    if (legacy === 'dark' || legacy === 'light') return legacy;
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
 
   useEffect(() => {
+    const root = document.documentElement;
+    root.classList.remove('dark', 'skin-hepta-dark');
     if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+      root.classList.add('dark');
+    } else if (theme === 'hepta-dark') {
+      root.classList.add('dark', 'skin-hepta-dark');
     }
+    root.setAttribute('data-theme', theme);
     localStorage.setItem(THEME_KEY, theme);
+    window.dispatchEvent(new CustomEvent('hepta-theme-change', { detail: theme }));
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+    setTheme((prev) => nextThemeMode(prev));
   };
 
   // Whiteboards data state
@@ -110,12 +125,18 @@ export default function App() {
   // Panels visibility (with protruding orange tabs when closed)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const useCanvasAiPanel = true;
   const [autoZoomEnabled, setAutoZoomEnabled] = useState(true);
+  const [aiProposal, setAiProposal] = useState<ChangeProposal | null>(null);
 
   // Modals & Overlays
   const [detailCard, setDetailCard] = useState<SurfaceCard | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isGoogleImportOpen, setIsGoogleImportOpen] = useState(false);
+  const [driveConfigured, setDriveConfigured] = useState(false);
+  const [keepEnvConfigured, setKeepEnvConfigured] = useState(false);
+  const [keepSessionEmail, setKeepSessionEmail] = useState<string | null>(null);
   const [isGraphSearchOpen, setIsGraphSearchOpen] = useState(false);
   const [isDataGridMatrixOpen, setIsDataGridMatrixOpen] = useState(false);
   const [activeFilterTag, setActiveFilterTag] = useState<string | undefined>();
@@ -194,6 +215,25 @@ export default function App() {
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Probe whether Google Drive OAuth / Keep gkeepapi env credentials are configured
+  useEffect(() => {
+    fetch('/api/google/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.driveConfigured) setDriveConfigured(true);
+        if (data?.keepEnvConfigured) setKeepEnvConfigured(true);
+        if (data?.keepSession?.email) setKeepSessionEmail(data.keepSession.email);
+        if (typeof window !== 'undefined' && window.location.search.includes('google_connected=1')) {
+          setIsGoogleImportOpen(true);
+          setIsChatOpen(true);
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+      })
+      .catch(() => {
+        /* offline / pre-server */
+      });
   }, []);
 
   // Board sections list for spatial zoning
@@ -491,6 +531,44 @@ export default function App() {
     [currentBoard.cards, isSidebarOpen, isChatOpen]
   );
 
+  const handleBoardReplacedByAi = useCallback(
+    (next: Whiteboard & { version?: number }) => {
+      setWhiteboards((prev) =>
+        prev.map((b) =>
+          b.id === next.id
+            ? {
+                ...b,
+                ...next,
+                description: next.description || b.description,
+                viewState: next.viewState || b.viewState,
+                version: next.version,
+                updatedAt: next.updatedAt || Date.now(),
+              }
+            : b
+        )
+      );
+    },
+    []
+  );
+
+  const canvasAiChat = useCanvasAiChat({
+    board: currentBoard,
+    selectedNoteIds: selectedCardId ? [selectedCardId] : [],
+    visibleNoteIds: currentBoard.cards
+      .filter((c) => c.type !== 'section')
+      .slice(0, 24)
+      .map((c) => c.id),
+    viewport: {
+      x: viewState.panX,
+      y: viewState.panY,
+      zoom: viewState.zoom,
+    },
+    onZoomToCard: handleZoomToCard,
+    onBoardReplaced: handleBoardReplacedByAi,
+    onProposalPreview: setAiProposal,
+    autoZoomEnabled,
+  });
+
   // Zoom controls
   const handleZoomIn = () => {
     setViewState((prev) => ({
@@ -771,8 +849,69 @@ export default function App() {
     handleAddMultipleCardsAndConnections(newCards, newConnections);
   };
 
+  const handleGoogleImportCommit = useCallback(
+    (payload: GoogleImportCommitPayload) => {
+      const winW = window.innerWidth - (isSidebarOpen ? 260 : 0);
+      const winH = window.innerHeight - 50;
+      const worldX = (winW / 2 - viewState.panX) / viewState.zoom - 180;
+      const worldY = (winH / 2 - viewState.panY) / viewState.zoom - 120;
+
+      const placement = placeOrganizedNotesOnCanvas(
+        payload.notes,
+        payload.organization,
+        worldX,
+        worldY
+      );
+
+      if (payload.createNewBoard) {
+        const newBoardId = 'wb-google-' + Date.now();
+        const newBoard: Whiteboard = {
+          id: newBoardId,
+          name: payload.boardName,
+          description: payload.organization.overview.slice(0, 180),
+          cards: placement.cards,
+          connections: placement.connections,
+          viewState: { panX: 20, panY: 20, zoom: 0.55 },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        setWhiteboards((prev) => [...prev, newBoard]);
+        setCurrentBoardId(newBoardId);
+        setViewState({ panX: 20, panY: 20, zoom: 0.55 });
+        if (placement.overviewCardId) {
+          setSelectedCardId(placement.overviewCardId);
+          setSpotlightCardId(placement.overviewCardId);
+        }
+      } else {
+        handleAddMultipleCardsAndConnections(placement.cards, placement.connections);
+        if (placement.overviewCardId) {
+          setSelectedCardId(placement.overviewCardId);
+          setSpotlightCardId(placement.overviewCardId);
+        }
+      }
+
+      setIsGoogleImportOpen(false);
+      setIsChatOpen(true);
+    },
+    [
+      handleAddMultipleCardsAndConnections,
+      isSidebarOpen,
+      viewState.panX,
+      viewState.panY,
+      viewState.zoom,
+    ]
+  );
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-white dark:bg-[#0c0d10] font-sans antialiased text-zinc-900 dark:text-zinc-100">
+    <div
+      className={`flex h-screen w-screen overflow-hidden font-sans antialiased ${
+        theme === 'hepta-dark'
+          ? 'bg-[#08090d] text-zinc-100'
+          : theme === 'dark'
+            ? 'bg-[#0c0d10] text-zinc-100'
+            : 'bg-white text-zinc-900'
+      }`}
+    >
       
       {/* Left Collapsible Navigation (With Protruding Orange Tab When Hidden) */}
       <Sidebar
@@ -838,6 +977,7 @@ export default function App() {
           onPopulateScaleTest={handlePopulateScaleTest}
           totalCardsCount={currentBoard.cards.length}
           onTriggerFileUpload={() => setIsUploadModalOpen(true)}
+          onTriggerGoogleImport={() => setIsGoogleImportOpen(true)}
           onAutoArrange={handleAutoArrange}
           onApplyLayout={handleApplyLayout}
           layoutTightness={layoutTightness}
@@ -874,6 +1014,13 @@ export default function App() {
               territories={spatialAnalysis.territories}
               edgeRoutingMode={edgeRoutingMode}
               onPredictiveAction={handlePredictiveAction}
+              proposalPreview={
+                <ProposalPreviewLayer
+                  proposal={aiProposal}
+                  cards={currentBoard.cards}
+                  zoom={viewState.zoom}
+                />
+              }
             />
 
             {/* Mobile Adaptive Zone Carousel & Stack Controller (Guarantees zero whitespace on phones) */}
@@ -897,6 +1044,9 @@ export default function App() {
                 LOD: {currentSemanticZoom}
               </span>
             </div>
+
+            {/* Forever Canvas AI composer — fixed above latent/control bars */}
+            <CanvasAiDock board={currentBoard} chat={canvasAiChat} bottomOffsetPx={72} />
 
             {/* Latent Intelligence Floating Control Bar & Insights */}
             <LatentToolbar
@@ -930,16 +1080,26 @@ export default function App() {
             />
           </div>
 
-          {/* Right AI Copilot & Chat Panel (With Protruding Orange Tab When Hidden) */}
-          <ChatPanel
-            isOpen={isChatOpen}
-            onClose={() => setIsChatOpen(false)}
-            onOpen={() => setIsChatOpen(true)}
-            cards={currentBoard.cards}
-            onZoomToCard={handleZoomToCard}
-            autoZoomEnabled={autoZoomEnabled}
-            onToggleAutoZoom={() => setAutoZoomEnabled(!autoZoomEnabled)}
-          />
+          {/* Right AI lane shares the forever-dock LangGraph controller */}
+          {useCanvasAiPanel ? (
+            <CanvasAiPanel
+              isOpen={isChatOpen}
+              onClose={() => setIsChatOpen(false)}
+              onOpen={() => setIsChatOpen(true)}
+              board={currentBoard}
+              chat={canvasAiChat}
+            />
+          ) : (
+            <ChatPanel
+              isOpen={isChatOpen}
+              onClose={() => setIsChatOpen(false)}
+              onOpen={() => setIsChatOpen(true)}
+              cards={currentBoard.cards}
+              onZoomToCard={handleZoomToCard}
+              autoZoomEnabled={autoZoomEnabled}
+              onToggleAutoZoom={() => setAutoZoomEnabled(!autoZoomEnabled)}
+            />
+          )}
         </div>
       </main>
 
@@ -967,6 +1127,15 @@ export default function App() {
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
         onFilesSelected={handleFilesUploaded}
+      />
+
+      <GoogleImportModal
+        isOpen={isGoogleImportOpen}
+        onClose={() => setIsGoogleImportOpen(false)}
+        onCommit={handleGoogleImportCommit}
+        driveConfigured={driveConfigured}
+        keepEnvConfigured={keepEnvConfigured}
+        keepSessionEmail={keepSessionEmail}
       />
 
       {/* Graph Native Search Modal */}

@@ -1,33 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
+
+/* Class-based dark mode (html.dark / html.dark.skin-hepta-dark) — not OS media query */
+@custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   :root {
-    /* Very light grey canvas background with barely perceived graph dots */
+    /* Light skin */
     --canvas-bg: #f3f4f6;
     --canvas-dot: rgba(0, 0, 0, 0.038);
     --card-bg: #ffffff;
-    --card-border: #d4d4d8; /* Minimal theme dark grey border (zinc-300) */
+    --card-bg-elevated: #ffffff;
+    --card-border: #d4d4d8;
     --card-border-hover: #71717a;
     --card-header: transparent;
     --sidebar-bg: #f9fafb;
+    --chrome-bg: #ffffff;
+    --panel-bg: #fbfbfc;
     --text-primary: #18181b;
     --text-secondary: #52525b;
     --text-muted: #71717a;
-    --accent-orange: #f97316;
+    --accent: #f97316;
+    --accent-soft: rgba(249, 115, 22, 0.12);
+    --accent-border: rgba(249, 115, 22, 0.3);
+    --accent-orange: #f97316; /* legacy alias */
+    --selection-ring: rgba(24, 24, 27, 0.65);
+    --radius-chrome: 0.375rem;
+    --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    --font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   }
 
+  /* Default dark (current Heptasurface) */
   .dark {
     --canvas-bg: #111215;
     --canvas-dot: rgba(255, 255, 255, 0.03);
-    --card-bg: #17181c;
-    --card-border: #27272a; /* Minimal theme dark grey border (zinc-800) */
+    --card-bg: #16171a;
+    --card-bg-elevated: #1a1b1f;
+    --card-border: #27272a;
     --card-border-hover: #52525b;
     --card-header: transparent;
     --sidebar-bg: #0d0e11;
+    --chrome-bg: #0d0e11;
+    --panel-bg: #0f1013;
     --text-primary: #f4f4f5;
     --text-secondary: #a1a1aa;
     --text-muted: #52525b;
+    --accent: #f97316;
+    --accent-soft: rgba(249, 115, 22, 0.12);
+    --accent-border: rgba(249, 115, 22, 0.3);
     --accent-orange: #f97316;
+    --selection-ring: rgba(244, 244, 245, 0.5);
+  }
+
+  /*
+   * Hepta Dark skin — ported from contextos00-create/Hepta_dark
+   * Deeper blueprint black + cyan accent + dark artifact cards.
+   */
+  .dark.skin-hepta-dark {
+    --canvas-bg: #08090d;
+    --canvas-dot: rgba(255, 255, 255, 0.055);
+    --card-bg: #0b0c12;
+    --card-bg-elevated: #12141d;
+    --card-border: rgba(255, 255, 255, 0.12);
+    --card-border-hover: rgba(56, 189, 248, 0.55);
+    --card-header: rgba(18, 20, 29, 0.9);
+    --sidebar-bg: #06070a;
+    --chrome-bg: #06070a;
+    --panel-bg: #090b10;
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-muted: #64748b;
+    --accent: #38bdf8;
+    --accent-soft: rgba(56, 189, 248, 0.14);
+    --accent-border: rgba(56, 189, 248, 0.35);
+    --accent-orange: #38bdf8;
+    --selection-ring: rgba(56, 189, 248, 0.55);
+    --radius-chrome: 0.15rem;
+    --font-ui: "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+    color-scheme: dark;
+  }
+
+  .dark.skin-hepta-dark body,
+  html.dark.skin-hepta-dark {
+    font-family: var(--font-ui);
   }
 }
 
@@ -47,34 +103,211 @@
   background: rgba(160, 160, 170, 0.4);
 }
 
-/* Restrained selection halos - subtle spatial ambient highlighting instead of thick blue borders */
+.dark.skin-hepta-dark ::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.dark.skin-hepta-dark ::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+.dark.skin-hepta-dark ::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+.dark.skin-hepta-dark ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Restrained selection halos */
 .selection-halo {
   box-shadow: 0 0 0 1px rgba(24, 24, 27, 0.65), 0 4px 18px -2px rgba(0, 0, 0, 0.08);
 }
 .dark .selection-halo {
   box-shadow: 0 0 0 1px rgba(244, 244, 245, 0.5), 0 6px 24px -2px rgba(0, 0, 0, 0.5);
 }
+.dark.skin-hepta-dark .selection-halo {
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.55), 0 8px 28px -4px rgba(0, 0, 0, 0.65);
+}
 
 /* Quiet, intelligent spotlight outline */
 @keyframes quiet-spotlight {
   0% {
-    box-shadow: 0 0 0 1.5px rgba(249, 115, 22, 0.6), 0 8px 24px -6px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 60%, transparent), 0 8px 24px -6px rgba(0, 0, 0, 0.08);
   }
   50% {
-    box-shadow: 0 0 0 2.5px rgba(249, 115, 22, 0.25), 0 12px 32px -8px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--accent) 25%, transparent), 0 12px 32px -8px rgba(0, 0, 0, 0.12);
   }
   100% {
-    box-shadow: 0 0 0 1.5px rgba(249, 115, 22, 0.6), 0 8px 24px -6px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 60%, transparent), 0 8px 24px -6px rgba(0, 0, 0, 0.08);
   }
 }
 
 .card-spotlight {
   animation: quiet-spotlight 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  border-color: rgba(249, 115, 22, 0.6) !important;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent) !important;
 }
 
-/* Barely perceptible canvas dot matrix */
+/* Canvas dot matrix */
 .canvas-grid-dots {
   background-color: var(--canvas-bg);
   background-image: radial-gradient(circle, var(--canvas-dot) 1px, transparent 1px);
+}
+
+/* Artifact cards / panels always follow skin tokens */
+.surface-card-artifact {
+  background-color: var(--card-bg) !important;
+  color: var(--text-primary);
+  border-color: var(--card-border);
+}
+.dark .surface-card-artifact {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+}
+.dark.skin-hepta-dark .surface-card-artifact {
+  background-color: rgba(11, 12, 18, 0.95) !important;
+  border-color: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.55);
+}
+.dark.skin-hepta-dark .surface-card-artifact .bg-white,
+.dark.skin-hepta-dark .surface-card-artifact .bg-white\/95,
+.dark.skin-hepta-dark .surface-card-artifact .bg-white\/98,
+.dark .surface-card-artifact .bg-white,
+.dark .surface-card-artifact .dark\:bg-\[\#121316\] {
+  background-color: var(--card-bg-elevated) !important;
+}
+
+/* Tables / grids nested in cards */
+.dark .surface-card-artifact table,
+.dark.skin-hepta-dark .surface-card-artifact table {
+  background-color: transparent;
+}
+.dark .surface-card-artifact pre,
+.dark.skin-hepta-dark .surface-card-artifact pre,
+.dark .surface-card-artifact code {
+  background-color: rgba(0, 0, 0, 0.35);
+  color: var(--text-secondary);
+}
+.dark.skin-hepta-dark .surface-card-artifact pre,
+.dark.skin-hepta-dark .surface-card-artifact code {
+  background-color: #030407;
+  color: #e2e8f0;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark.skin-hepta-dark .canvas-grid-dots {
+  /* Hepta_dark canvas-dot-grid: slightly brighter dots on deeper black */
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.055) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+/* Darken embedded map tiles under dark / Hepta Dark */
+.dark .map-embed-iframe {
+  filter: invert(0.9) hue-rotate(180deg) brightness(0.95) contrast(0.92);
+  mixed-blend-mode: normal;
+}
+.dark.skin-hepta-dark .map-embed-iframe {
+  filter: invert(0.92) hue-rotate(180deg) brightness(0.88) contrast(0.95) saturate(0.85);
+}
+
+/* Hepta Dark: remaps orange chrome accents → cyan/sky (from Hepta_dark) */
+.dark.skin-hepta-dark .bg-orange-500 { background-color: #0ea5e9 !important; }
+.dark.skin-hepta-dark .bg-orange-600 { background-color: #0284c7 !important; }
+.dark.skin-hepta-dark .hover\:bg-orange-500:hover { background-color: #0ea5e9 !important; }
+.dark.skin-hepta-dark .hover\:bg-orange-600:hover { background-color: #0284c7 !important; }
+.dark.skin-hepta-dark .bg-orange-500\/10 { background-color: rgba(14, 165, 233, 0.1) !important; }
+.dark.skin-hepta-dark .bg-orange-500\/20 { background-color: rgba(14, 165, 233, 0.2) !important; }
+.dark.skin-hepta-dark .hover\:bg-orange-500\/10:hover { background-color: rgba(14, 165, 233, 0.1) !important; }
+.dark.skin-hepta-dark .hover\:bg-orange-500\/20:hover { background-color: rgba(14, 165, 233, 0.2) !important; }
+.dark.skin-hepta-dark .active\:bg-orange-500\/30:active { background-color: rgba(14, 165, 233, 0.3) !important; }
+.dark.skin-hepta-dark .text-orange-500,
+.dark.skin-hepta-dark .text-orange-600,
+.dark.skin-hepta-dark .dark\:text-orange-400 { color: #38bdf8 !important; }
+.dark.skin-hepta-dark .hover\:text-orange-500:hover,
+.dark.skin-hepta-dark .hover\:text-orange-600:hover,
+.dark.skin-hepta-dark .dark\:hover\:text-orange-400:hover { color: #7dd3fc !important; }
+.dark.skin-hepta-dark .border-orange-500,
+.dark.skin-hepta-dark .border-orange-600 { border-color: #0ea5e9 !important; }
+.dark.skin-hepta-dark .border-orange-500\/20 { border-color: rgba(14, 165, 233, 0.2) !important; }
+.dark.skin-hepta-dark .border-orange-500\/30 { border-color: rgba(14, 165, 233, 0.3) !important; }
+.dark.skin-hepta-dark .border-orange-600\/40 { border-color: rgba(2, 132, 199, 0.4) !important; }
+.dark.skin-hepta-dark .ring-orange-500 { --tw-ring-color: #0ea5e9 !important; }
+.dark.skin-hepta-dark .focus\:border-orange-400:focus,
+.dark.skin-hepta-dark .focus\:border-orange-500:focus { border-color: #38bdf8 !important; }
+.dark.skin-hepta-dark .focus\:ring-orange-500\/30:focus { --tw-ring-color: rgba(14, 165, 233, 0.3) !important; }
+
+/* Deeper chrome surfaces under Hepta Dark */
+.dark.skin-hepta-dark .dark\:bg-\[\#0c0d10\] { background-color: #08090d !important; }
+.dark.skin-hepta-dark .dark\:bg-\[\#0d0e11\] { background-color: #06070a !important; }
+.dark.skin-hepta-dark .dark\:bg-\[\#0d0e11\]\/80 { background-color: rgba(6, 7, 10, 0.8) !important; }
+.dark.skin-hepta-dark .dark\:bg-\[\#0f1013\] { background-color: #090b10 !important; }
+.dark.skin-hepta-dark .dark\:bg-\[\#141519\] { background-color: #0c0e14 !important; }
+.dark.skin-hepta-dark .dark\:bg-\[\#15161a\] { background-color: #0e1016 !important; }
+.dark.skin-hepta-dark .dark\:bg-\[\#16171b\]\/98 { background-color: rgba(12, 14, 20, 0.98) !important; }
+
+/* Blueprint prose (from Hepta_dark) for note bodies when skin active */
+.dark.skin-hepta-dark .prose-blueprint {
+  font-size: 0.775rem;
+  line-height: 1.55;
+  color: #cbd5e1;
+  font-family: var(--font-ui);
+}
+.dark.skin-hepta-dark .prose-blueprint h1 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-top: 0.6rem;
+  margin-bottom: 0.35rem;
+  color: #ffffff;
+  font-family: var(--font-code);
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 0.2rem;
+}
+.dark.skin-hepta-dark .prose-blueprint h2 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+  color: #f8fafc;
+  font-family: var(--font-code);
+  letter-spacing: -0.01em;
+}
+.dark.skin-hepta-dark .prose-blueprint h3 {
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-top: 0.4rem;
+  margin-bottom: 0.2rem;
+  color: #e2e8f0;
+}
+.dark.skin-hepta-dark .prose-blueprint code {
+  font-family: var(--font-code);
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #38bdf8;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.2rem;
+  font-size: 0.72rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.dark.skin-hepta-dark .prose-blueprint pre {
+  background-color: #030407;
+  color: #e2e8f0;
+  padding: 0.6rem;
+  border-radius: 0.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow-x: auto;
+  font-size: 0.72rem;
+  margin: 0.4rem 0;
+  font-family: var(--font-code);
+}
+.dark.skin-hepta-dark .prose-blueprint blockquote {
+  border-left: 2px solid rgba(56, 189, 248, 0.6);
+  padding-left: 0.6rem;
+  font-style: italic;
+  color: #94a3b8;
+}
+
+/* Skin badge indicator in chrome — unused; badge is React-conditional */
+.skin-hepta-badge {
+  display: inline-flex;
 }
