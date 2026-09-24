@@ -365,12 +365,20 @@ export function resolveContextNotes(
 ) {
   const selected = store.getNotesByIds(ctx.boardId, ctx.selectedNoteIds);
   if (selected.length > 0 && !query) return selected;
+
   if (query) {
     const searched = store.searchNotes(ctx.boardId, query, 16);
     const merged = new Map<string, any>();
     for (const n of [...selected, ...searched]) merged.set(n.id, n);
-    return [...merged.values()].slice(0, MAX_NOTES_RETRIEVED);
+    if (merged.size > 0) {
+      return [...merged.values()].slice(0, MAX_NOTES_RETRIEVED);
+    }
+    // Generic prompts ("summarize", "what am I missing") often match no keyword —
+    // fall through to selection / visible / board sample.
   }
+
+  if (selected.length > 0) return selected;
+
   if (ctx.visibleNoteIds.length > 0) {
     return store.getNotesByIds(ctx.boardId, ctx.visibleNoteIds.slice(0, MAX_NOTES_RETRIEVED));
   }
